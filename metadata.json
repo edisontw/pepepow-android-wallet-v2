@@ -1,0 +1,6 @@
+{
+  "name": "PEPEW Wallet",
+  "description": "An interactive Android app simulator for PEPEW Wallet built in Kotlin & Compose, with full source code explorer and realistic mobile interface.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

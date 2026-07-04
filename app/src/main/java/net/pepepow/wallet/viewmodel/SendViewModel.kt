@@ -1,0 +1,59 @@
+package net.pepepow.wallet.viewmodel
+
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import net.pepepow.wallet.data.WalletRepository
+
+class SendViewModel(
+    private val repository: WalletRepository
+) : ViewModel() {
+
+    private val _sendSuccess = MutableStateFlow<Boolean?>(null)
+    val sendSuccess: StateFlow<Boolean?> = _sendSuccess.asStateFlow()
+
+    private val _addressError = MutableStateFlow<String?>(null)
+    val addressError: StateFlow<String?> = _addressError.asStateFlow()
+
+    private val _amountError = MutableStateFlow<String?>(null)
+    val amountError: StateFlow<String?> = _amountError.asStateFlow()
+
+    fun sendPepew(recipientAddress: String, amountStr: String) {
+        _addressError.value = null
+        _amountError.value = null
+        _sendSuccess.value = null
+
+        val amount = amountStr.toDoubleOrNull()
+        var valid = true
+
+        if (!recipientAddress.startsWith("P")) {
+            _addressError.value = "Address must start with 'P'"
+            valid = false
+        } else if (recipientAddress.length < 20) {
+            _addressError.value = "Address is too short"
+            valid = false
+        }
+
+        if (amount == null || amount <= 0) {
+            _amountError.value = "Please enter a valid amount"
+            valid = false
+        } else if (amount + 0.001 > repository.balance.value) {
+            _amountError.value = "Insufficient balance (Need amount + 0.001 fee)"
+            valid = false
+        }
+
+        if (valid && amount != null) {
+            val success = repository.sendTx(recipientAddress, amount)
+            _sendSuccess.value = success
+        } else {
+            _sendSuccess.value = false
+        }
+    }
+
+    fun resetSendState() {
+        _sendSuccess.value = null
+        _addressError.value = null
+        _amountError.value = null
+    }
+}
