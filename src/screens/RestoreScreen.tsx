@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { validatePrototypeRestorePhrase } from "../restore/restoreValidation";
 import { prototypeWalletDeriver } from "../wallet/walletDeriver";
@@ -31,6 +31,11 @@ export function RestoreScreen(props: RestoreScreenProps) {
       <section className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
         <div className="mb-2 flex items-center gap-2 font-bold"><AlertTriangle size={16} /> Experimental restore</div>
         <p>Use small test funds only. Do not use this preview as a production recovery tool.</p>
+      </section>
+
+      <section className="rounded-3xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+        <div className="mb-2 flex items-center gap-2 font-bold"><ShieldCheck size={16} /> Local-only boundary</div>
+        <p>Recovery words must stay on device. PEPEW Light API should only receive address lookups, UTXO queries, and signed transaction broadcasts.</p>
       </section>
 
       <section className="rounded-3xl bg-white p-5 shadow-sm">
