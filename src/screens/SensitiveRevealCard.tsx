@@ -30,7 +30,7 @@ export function SensitiveRevealCard({ title, description, value, revealLabel = "
     return (
       <section className="rounded-3xl border border-red-100 bg-white p-5 shadow-sm">
         <div className="mb-2 flex items-center gap-2 text-sm font-bold text-red-700">
-          <AlertTriangle size={16} /> Sensitive data warning
+          <AlertTriangle size={16} /> Sensitive information
         </div>
         <p className="text-xs leading-5 text-red-800">{description}</p>
         <button
@@ -55,7 +55,7 @@ export function SensitiveRevealCard({ title, description, value, revealLabel = "
         onClick={() => setRequested(true)}
         className="flex w-full items-center justify-between font-mono text-xs font-bold text-red-700"
       >
-        Request {title} Reveal <Eye size={14} />
+        Reveal {title} <Eye size={14} />
       </button>
     </section>
   );
