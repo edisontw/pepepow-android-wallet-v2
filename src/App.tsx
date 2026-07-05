@@ -24,8 +24,11 @@ import {
   privateKeyToWIF,
 } from "./wallet/walletUtils";
 import type { UTXO } from "./wallet/walletUtils";
+import { SeedStartScreen } from "./screens/SeedStartScreen";
+import { RestoreScreen } from "./screens/RestoreScreen";
+import { screenTitle } from "./screens/screenTitle";
+import type { Screen } from "./types/wallet";
 
-type Screen = "seed" | "dashboard" | "receive" | "send" | "history" | "settings";
 type ApiState = "CONNECTED" | "READY" | "FAILED";
 
 type Tx = {
@@ -307,7 +310,7 @@ export default function App() {
       const utxoData = await utxoRes.json().catch(() => ({}));
       const historyItems = extractArray(history?.history ?? history?.transactions ?? summary?.history ?? []);
       const mempoolItems = extractArray(history?.mempool ?? []);
-      const confirmedRaw = summary?.balance?.confirmed_pepew ?? summary?.balance?.total_pepew ?? summary?.confirmed_pepew ?? summary?.confirmed_balance ?? summary?.balance?.confirmed ?? summary?.balance;
+      const confirmedRaw = summary?.balance?.confirmed_pepew ?? summary?.balance?.total_pepew ?? summary?.confirmed_pepew ?? summary?.confirmed_balance ?? summary?.balance?.confirmed ?? summary?.[...]
       const unconfirmedRaw = summary?.balance?.unconfirmed_pepew ?? summary?.unconfirmed_pepew ?? summary?.mempool_balance ?? 0;
       const confirmed = pepewFromApiAmount(confirmedRaw, summary?.balance?.confirmed_pepew !== undefined || summary?.balance?.total_pepew !== undefined || summary?.confirmed_pepew !== undefined);
       const unconfirmed = pepewFromApiAmount(unconfirmedRaw, summary?.balance?.unconfirmed_pepew !== undefined || summary?.unconfirmed_pepew !== undefined);
@@ -318,7 +321,7 @@ export default function App() {
       setTxs(options?.keepLocal ? mergeTxs(apiTxs, localTxs) : apiTxs);
       setUtxoCount(parsedUtxos.length);
       setUtxoTotal(utxoBalance);
-      setHeight(safeText(status?.height ?? status?.block_height ?? status?.data?.height ?? status?.electrumx?.height ?? status?.server?.height ?? status?.chain?.height ?? status?.tip?.height ?? "ready"));
+      setHeight(safeText(status?.height ?? status?.block_height ?? status?.data?.height ?? status?.electrumx?.height ?? status?.server?.height ?? status?.chain?.height ?? status?.tip?.height ?? "[...]
       setLastRefreshLabel(new Date(now).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
       setApiState(statusRes.ok && summaryRes.ok ? "READY" : "FAILED");
       setApiMessage(apiTxs.length > 0 ? `API ready. ${apiTxs.length} history entries, ${parsedUtxos.length} UTXOs.` : `API ready. ${parsedUtxos.length} UTXOs.`);
@@ -364,6 +367,18 @@ export default function App() {
     setSendError("");
     setLocalTxs([]);
     setLastRefreshAt(0);
+  }
+
+  function restoreTestWallet(restoredWords: string[]) {
+    setWords(restoredWords);
+    setInputSeedMode(false);
+    setCustomSeedInput("");
+    setSendError("");
+    setLocalTxs([]);
+    setBroadcastResult(null);
+    setLastRefreshAt(0);
+    setWalletReady(true);
+    setScreen("dashboard");
   }
 
   async function prepareLocalTransaction() {
@@ -484,65 +499,55 @@ export default function App() {
 
   if (screen === "seed") {
     return (
-      <div className="min-h-screen bg-[#eef7e9] p-4 font-sans text-slate-900">
-        <div className="mx-auto max-w-md space-y-4">
-          <div className="rounded-3xl bg-white p-6 shadow-sm">
-            <div className="mb-2 font-mono text-sm font-bold tracking-[0.25em] text-green-800">🐸 PEPEW WALLET</div>
-            <h1 className="text-2xl font-black text-slate-900">Phase 3 Experimental</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-500">Browser-preview wallet for small test funds only. Seed/private key logic stays local, but this is not production wallet code.</p>
-          </div>
-          <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            <div className="mb-2 flex items-center gap-2 font-bold"><AlertTriangle size={16} /> Test wallet warning</div>
-            <p>Do not use large balances. This prototype uses simplified deterministic derivation for AI Studio testing.</p>
-          </div>
-          <div className="rounded-3xl bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="font-mono text-xs font-bold tracking-widest text-slate-400">SEED WORDS</div>
-              <button onClick={() => setInputSeedMode(!inputSeedMode)} className="text-xs font-bold text-green-700">{inputSeedMode ? "Use Demo" : "Import Phrase"}</button>
-            </div>
-            {inputSeedMode ? (
-              <div className="space-y-3">
-                <textarea value={customSeedInput} onChange={e => setCustomSeedInput(e.target.value)} className="h-28 w-full rounded-2xl border border-green-100 p-3 font-mono text-xs outline-none focus:border-green-500" placeholder="Paste exactly 12 words" />
-                <button onClick={importSeed} className="w-full rounded-xl bg-green-700 py-3 font-mono text-xs font-bold text-white">IMPORT LOCAL TEST WALLET</button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-2">
-                {words.map((word, index) => <div key={`${word}-${index}`} className="rounded-xl bg-green-50 p-2 font-mono text-xs"><span className="text-slate-400">{index + 1}.</span> {word}</div>)}
-              </div>
-            )}
-          </div>
-          {sendError && <div className="rounded-2xl bg-red-50 p-3 text-sm text-red-700">{sendError}</div>}
-          <button onClick={() => { setWalletReady(true); setScreen("dashboard"); }} className="w-full rounded-2xl bg-green-700 py-4 font-mono text-sm font-bold tracking-widest text-white shadow-lg">CREATE / OPEN TEST WALLET</button>
-        </div>
+      <SeedStartScreen
+        words={words}
+        error={sendError}
+        onCreate={() => {
+          setWalletReady(true);
+          setScreen("dashboard");
+        }}
+        onRestore={() => setScreen("restore")}
+      />
+    );
+  }
+
+  if (screen === "restore") {
+    return (
+      <div className="min-h-screen bg-[#eef7e9] pb-8 text-slate-900">
+        <RestoreScreen
+          onRestore={restoreTestWallet}
+          onCancel={() => setScreen("seed")}
+        />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#eef7e9] pb-8 text-slate-900">
-      {screen !== "dashboard" && <Header title={screen === "receive" ? "Receive PEPEW" : screen === "send" ? "Send PEPEW" : screen === "history" ? "Transaction History" : "Wallet Configuration"} onBack={() => setScreen("dashboard")} />}
+      {screen !== "dashboard" && <Header title={screenTitle(screen)} onBack={() => setScreen("dashboard")} />}
 
       {screen === "dashboard" && (
         <main className="mx-auto max-w-md space-y-4 p-3">
           <div className="flex items-center justify-between py-2">
             <div className="font-mono text-xs font-black tracking-widest text-green-800">🐸 PEPEW WALLET <span className="rounded bg-green-50 px-2 py-1 text-[10px]">v1.0-Full</span></div>
-            <div className={`rounded-full px-4 py-2 font-mono text-xs font-bold shadow-sm ${apiState === "READY" ? "bg-white text-green-700" : apiState === "FAILED" ? "bg-red-50 text-red-700" : "bg-white text-amber-600"}`}>● {apiState}</div>
+            <div className={`rounded-full px-4 py-2 font-mono text-xs font-bold shadow-sm ${apiState === "READY" ? "bg-white text-green-700" : apiState === "FAILED" ? "bg-red-50 text-red-700" : "[...]
+            }`}>{apiState}</div>
           </div>
           <section className="overflow-hidden rounded-3xl bg-green-700 p-6 text-white shadow-lg">
-            <div className="mb-4 flex items-center justify-between font-mono text-xs font-bold tracking-widest">LOCAL WALLET BALANCE <span className="rounded bg-green-600 px-2 py-1">P2PKH</span></div>
+            <div className="mb-4 flex items-center justify-between font-mono text-xs font-bold tracking-widest">LOCAL WALLET BALANCE <span className="rounded bg-green-600 px-2 py-1">P2PKH</span><[...]
             <div className="font-mono text-3xl font-black tracking-widest">{formatAmount(balance)} <span className="text-sm">PEPEW</span></div>
-            <div className="mt-5 border-t border-green-500 pt-4 font-mono text-xs">Address: <button onClick={() => handleCopy(activeAddress, "address")} className="underline">{shortText(activeAddress, 8, 6)}</button></div>
+            <div className="mt-5 border-t border-green-500 pt-4 font-mono text-xs">Address: <button onClick={() => handleCopy(activeAddress, "address")} className="underline">{shortText(activeAdd[...]
           </section>
           <div className="rounded-2xl bg-white p-3 font-mono text-[11px] text-slate-500">API refresh cooldown: {refreshCooldownSeconds > 0 ? `${refreshCooldownSeconds}s` : "ready"}</div>
           <div className="grid grid-cols-4 gap-3">
-            <button onClick={openSend} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Send className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Send</div></button>
-            <button onClick={() => setScreen("receive")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><ArrowDownLeft className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Receive</div></button>
-            <button onClick={() => setScreen("history")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><History className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">History</div></button>
-            <button onClick={() => setScreen("settings")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Settings className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Settings</div></button>
+            <button onClick={openSend} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Send className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Send[...]
+            <button onClick={() => setScreen("receive")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><ArrowDownLeft className="mx-auto mb-2 text-green-700" size={18} /><div classNa[...]
+            <button onClick={() => setScreen("history")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><History className="mx-auto mb-2 text-green-700" size={18} /><div className="te[...]
+            <button onClick={() => setScreen("settings")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Settings className="mx-auto mb-2 text-green-700" size={18} /><div className="[...]
           </div>
           <section className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between font-mono text-xs font-bold tracking-widest text-slate-400">RECENT ACTIVITY ({txs.length}) <button disabled={refreshCooldownSeconds > 0} onClick={() => refreshApi({ keepLocal: true, reason: "manual" })} className="disabled:opacity-40" title={refreshCooldownSeconds > 0 ? `Wait ${refreshCooldownSeconds}s` : "Refresh"}><RefreshCcw size={14} /></button></div>
-            {txs.length === 0 ? <div className="py-8 text-center text-sm text-slate-400">No transaction history found on API.</div> : <div className="space-y-3">{txs.slice(0, 3).map(tx => <TxCard key={tx.id} tx={tx} />)}</div>}
+            <div className="mb-3 flex items-center justify-between font-mono text-xs font-bold tracking-widest text-slate-400">RECENT ACTIVITY ({txs.length}) <button disabled={refreshCooldownSeco[...]
+            {txs.length === 0 ? <div className="py-8 text-center text-sm text-slate-400">No transaction history found on API.</div> : <div className="space-y-3">{txs.slice(0, 3).map(tx => <TxCard[...]
           </section>
         </main>
       )}
@@ -552,11 +557,11 @@ export default function App() {
           <section className="rounded-3xl bg-white p-5 shadow-sm">
             <div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-400">RECEIVE ADDRESS</div>
             <div className="break-all rounded-2xl bg-green-50 p-4 font-mono text-sm text-green-900">{activeAddress}</div>
-            <button onClick={() => handleCopy(activeAddress, "address")} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-green-700 py-3 font-mono text-xs font-bold text-white"><Copy size={14} /> COPY ADDRESS</button>
+            <button onClick={() => handleCopy(activeAddress, "address")} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-green-700 py-3 font-mono text-xs font-bold tex[...]
           </section>
-          <section className="rounded-3xl bg-white p-5 text-center shadow-sm"><QrCode className="mx-auto text-green-700" size={120} /><div className="mt-2 text-xs text-slate-400">QR placeholder encodes address only in production UI.</div></section>
+          <section className="rounded-3xl bg-white p-5 text-center shadow-sm"><QrCode className="mx-auto text-green-700" size={120} /><div className="mt-2 text-xs text-slate-400">QR placeholder e[...]
           <section className="rounded-3xl border border-red-100 bg-white p-5 shadow-sm">
-            <button onClick={() => setShowWif(!showWif)} className="flex w-full items-center justify-between font-mono text-xs font-bold text-red-700">Reveal Private Key WIF {showWif ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+            <button onClick={() => setShowWif(!showWif)} className="flex w-full items-center justify-between font-mono text-xs font-bold text-red-700">Reveal Private Key WIF {showWif ? <EyeOff si[...]
             {showWif && <div className="mt-3 break-all rounded-2xl bg-red-50 p-3 font-mono text-xs text-red-800">{localWallet.wif}</div>}
           </section>
         </main>
@@ -566,15 +571,15 @@ export default function App() {
         <main className="mx-auto max-w-md space-y-4 p-4">
           <section className="rounded-3xl bg-white p-5 shadow-sm">
             <label className="font-mono text-xs font-bold tracking-widest text-slate-500">RECIPIENT ADDRESS</label>
-            <input value={recipient} disabled={!!signedTxHex || isBroadcasting} onChange={e => { setRecipient(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-sm outline-none focus:border-green-500 disabled:bg-slate-50" />
+            <input value={recipient} disabled={!!signedTxHex || isBroadcasting} onChange={e => { setRecipient(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl borde[...]
             <label className="mt-4 block font-mono text-xs font-bold tracking-widest text-slate-500">AMOUNT (PEPEW)</label>
-            <input value={sendAmount} disabled={!!signedTxHex || isBroadcasting} onChange={e => { setSendAmount(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-sm outline-none focus:border-green-500 disabled:bg-slate-50" />
-            <div className="mt-4 flex justify-between rounded-xl bg-slate-50 p-3 font-mono text-xs"><span>Standard local fee:</span><span className="font-bold text-green-700">{MOCK_FEE} PEPEW</span></div>
+            <input value={sendAmount} disabled={!!signedTxHex || isBroadcasting} onChange={e => { setSendAmount(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl bor[...]
+            <div className="mt-4 flex justify-between rounded-xl bg-slate-50 p-3 font-mono text-xs"><span>Standard local fee:</span><span className="font-bold text-green-700">{MOCK_FEE} PEPEW</sp[...]
           </section>
           <div className="rounded-2xl bg-white p-3 font-mono text-[11px] text-slate-500">UTXO debug: {utxoCount} spendable · {formatAmount(utxoTotal, 8)} PEPEW</div>
           {sendError && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800">{sendError}</div>}
-          {broadcastResult && <div className={`rounded-2xl p-4 text-xs ${broadcastResult.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{broadcastResult.success ? `Broadcast submitted: ${broadcastResult.txid}` : broadcastResult.error}</div>}
-          {!signedTxHex && <button onClick={prepareLocalTransaction} className="w-full rounded-2xl bg-green-700 py-4 font-mono text-xs font-bold tracking-widest text-white">PREPARE & SIGN TRANSACTION</button>}
+          {broadcastResult && <div className={`rounded-2xl p-4 text-xs ${broadcastResult.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{broadcastResult.success ? `Broadcast[...]
+          {!signedTxHex && <button onClick={prepareLocalTransaction} className="w-full rounded-2xl bg-green-700 py-4 font-mono text-xs font-bold tracking-widest text-white">PREPARE & SIGN TRANSAC[...]
           {sendReview && (
             <section className="rounded-3xl border border-green-100 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center gap-2 font-mono text-xs font-bold text-green-700"><CheckCircle size={16} /> REVIEW BEFORE BROADCAST</div>
@@ -589,25 +594,25 @@ export default function App() {
               </div>
             </section>
           )}
-          {signedTxHex && <button onClick={clearPreparedTransaction} className="w-full rounded-2xl bg-white py-3 font-mono text-xs font-bold tracking-widest text-green-700 shadow-sm">EDIT DETAILS / CLEAR SIGNED TX</button>}
-          <button onClick={broadcastSignedTransaction} disabled={!canBroadcast} className="w-full rounded-2xl bg-slate-900 py-4 font-mono text-xs font-bold tracking-widest text-white disabled:bg-slate-300">{isBroadcasting ? "BROADCASTING..." : submittedRawTxHex === signedTxHex && signedTxHex ? "BROADCAST SUBMITTED" : "BROADCAST TO LIVE NETWORK"}</button>
-          {signedTxHex && <section className="rounded-3xl border border-green-100 bg-white p-5 shadow-sm"><div className="mb-2 font-mono text-xs font-bold text-green-700">SIGNED RAW TX READY</div><pre className="max-h-48 overflow-auto rounded-2xl bg-slate-950 p-3 text-[10px] text-green-100">{signedTxHex}</pre></section>}
+          {signedTxHex && <button onClick={clearPreparedTransaction} className="w-full rounded-2xl bg-white py-3 font-mono text-xs font-bold tracking-widest text-green-700 shadow-sm">EDIT DETAILS[...]
+          <button onClick={broadcastSignedTransaction} disabled={!canBroadcast} className="w-full rounded-2xl bg-slate-900 py-4 font-mono text-xs font-bold tracking-widest text-white disabled:bg-[...]
+          {signedTxHex && <section className="rounded-3xl border border-green-100 bg-white p-5 shadow-sm"><div className="mb-2 font-mono text-xs font-bold text-green-700">SIGNED RAW TX READY</div[...]
         </main>
       )}
 
       {screen === "history" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
           <div className="rounded-2xl bg-white p-4 font-mono text-xs text-slate-500">Querying: <span className="font-bold text-green-800">{shortText(activeAddress, 10, 8)}</span></div>
-          <button disabled={refreshCooldownSeconds > 0} onClick={() => refreshApi({ keepLocal: true, reason: "manual" })} className="w-full rounded-2xl bg-white py-3 font-mono text-xs font-bold text-green-700 shadow-sm disabled:text-slate-300">{refreshCooldownSeconds > 0 ? `REFRESH AVAILABLE IN ${refreshCooldownSeconds}s` : "REFRESH HISTORY"}</button>
-          {txs.length === 0 ? <div className="rounded-3xl border border-green-200 bg-white p-8 text-center text-sm text-slate-500">No transactions returned from API. Recent local broadcasts stay visible until API history catches up.</div> : txs.map(tx => <TxCard key={tx.id} tx={tx} />)}
+          <button disabled={refreshCooldownSeconds > 0} onClick={() => refreshApi({ keepLocal: true, reason: "manual" })} className="w-full rounded-2xl bg-white py-3 font-mono text-xs font-bold t[...]
+          {txs.length === 0 ? <div className="rounded-3xl border border-green-200 bg-white p-8 text-center text-sm text-slate-500">No transactions returned from API. Recent local broadcasts stay [...]
         </main>
       )}
 
       {screen === "settings" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
-          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW Wallet</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Version:</span><b className="text-green-700">1.0.7 (Experimental)</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Network:</span><b>P2PKH v55</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Status / Height:</span><b>{height}</b></div><div className="flex justify-between py-3"><span className="font-mono text-xs text-slate-400">Last Refresh:</span><b>{lastRefreshLabel}</b></div></section>
-          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-500">INTERACTIVE TESTING</div><label className="flex items-center justify-between rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-900">Use Demo Read-Only Address<input type="checkbox" checked={useDemoAddress} onChange={e => { setUseDemoAddress(e.target.checked); setLocalTxs([]); setBroadcastResult(null); setLastRefreshAt(0); }} /></label><div className="mt-3 break-all rounded-xl bg-slate-50 p-3 font-mono text-[11px] text-slate-400">Active Address: {activeAddress}</div></section>
-          <section className="rounded-3xl border border-green-200 bg-green-50 p-5 text-sm leading-6 text-green-900">🔒 Private keys, derived keys, and signing are local browser-preview logic. Never use large real funds with this experimental client.</section>
+          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW W[...]
+          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-500">INTERACTIVE TESTING</div><label className="flex [...]
+          <section className="rounded-3xl border border-green-200 bg-green-50 p-5 text-sm leading-6 text-green-900">🔒 Private keys, derived keys, and signing are local browser-preview logic. N[...]
           <button onClick={() => setScreen("seed")} className="w-full rounded-2xl bg-red-600 py-4 font-mono text-xs font-bold tracking-widest text-white">WIPE & RESET WALLET</button>
         </main>
       )}
