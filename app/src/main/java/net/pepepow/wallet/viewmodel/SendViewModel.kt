@@ -45,6 +45,9 @@ class SendViewModel(
 
         if (valid && amount != null) {
             val success = repository.sendTx(recipientAddress, amount)
+            if (!success) {
+                _amountError.value = "Read-only API mode: sending starts in Phase 3."
+            }
             _sendSuccess.value = success
         } else {
             _sendSuccess.value = false
