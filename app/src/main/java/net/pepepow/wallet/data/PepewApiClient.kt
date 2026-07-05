@@ -75,6 +75,7 @@ class PepewApiClient(
         val confirmedPepew = when {
             balance == null -> json.optString("confirmed_pepew", json.optString("balance", "0"))
             balance.has("confirmed_pepew") -> balance.optString("confirmed_pepew", "0")
+            balance.has("total_pepew") -> balance.optString("total_pepew", "0")
             balance.has("confirmed") -> satoshiLikeToPepew(balance.optLong("confirmed", 0L))
             else -> "0"
         }
@@ -90,8 +91,8 @@ class PepewApiClient(
 
         return ApiAddressSummary(
             address = json.optString("address"),
-            confirmedPepew = confirmedPepew.toDoubleOrNullSafe(),
-            unconfirmedPepew = unconfirmedPepew.toDoubleOrNullSafe(),
+            confirmedPepew = confirmedPepew.toSafeDouble(),
+            unconfirmedPepew = unconfirmedPepew.toSafeDouble(),
             history = history,
             source = json.optString("source", "unknown")
         )
@@ -101,11 +102,19 @@ class PepewApiClient(
         val result = mutableListOf<ApiTransaction>()
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
-            val txid = item.optString("txid", item.optString("tx_hash", item.optString("hash", "tx_$i")))
+            val txid = item.optString("txid", item.optString("tx_hash", item.optString("hash", ""))).trim()
+            if (txid.isBlank()) continue
+
             val amount = firstDouble(
                 item,
                 listOf("amount_pepew", "value_pepew", "delta_pepew", "amount", "value", "balance_delta")
-            ) ?: 0.0
+            )
+
+            // Some ElectrumX history entries only include txid/height. They do not contain
+            // wallet delta data, so rendering them as received +NaN or fake 0.0 is misleading.
+            // Skip those compact entries until the API provides a confirmed amount field.
+            if (amount == null) continue
+
             val timestampSeconds = item.optLongOrNull("timestamp") ?: item.optLongOrNull("time")
             val height = item.optLongOrNull("height")
             val pending = item.optBoolean("pending", false) || height == 0L || height == -1L
@@ -171,14 +180,16 @@ class PepewApiClient(
     private fun satoshiLikeToPepew(value: Long): String =
         String.format(Locale.US, "%.8f", value / 100_000_000.0)
 
-    private fun String.toDoubleOrNullSafe(): Double =
-        replace(",", "").trim().toDoubleOrNull() ?: 0.0
+    private fun String.toSafeDouble(): Double {
+        val parsed = replace(",", "").trim().toDoubleOrNull() ?: return 0.0
+        return if (parsed.isNaN() || parsed.isInfinite()) 0.0 else parsed
+    }
 
     private fun firstDouble(json: JSONObject, keys: List<String>): Double? {
         for (key in keys) {
-            if (!json.has(key)) continue
+            if (!json.has(key) || json.isNull(key)) continue
             val raw = json.optString(key)
-            val parsed = raw.toDoubleOrNullSafe()
+            val parsed = raw.toSafeDouble()
             if (parsed != 0.0 || raw.trim() in listOf("0", "0.0", "0.00")) return parsed
         }
         return null
