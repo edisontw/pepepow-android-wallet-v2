@@ -1,58 +1,60 @@
 # Phase 3 Status
 
-Status: **safe mock send scaffold added to Google AI Studio / Vite preview**
+Status: **AI Studio Phase 3 experimental wallet preview merged to `main`**
 
 ## Scope
 
-This phase adds a visible Send flow for testing UX only.
+This phase is now an experimental browser-preview wallet for small test amounts. It is intended for rapid AI Studio / Vite testing, not production use.
 
 Implemented in the preview:
 
-- Recipient address validation.
-- Amount validation.
-- Mock fee display.
-- Local mock transaction preparation.
-- Local mock confirmation.
-- Pending local transaction inserted into dashboard/history state.
+- 12-word seed import / demo seed flow.
+- Deterministic local private-key derivation for testing.
+- PEPEW P2PKH address derivation with version byte `55`.
+- WIF display with version byte `204`.
+- Balance/history lookup via `https://light.pepepow.net`.
+- Live UTXO lookup via `/api/wallet/utxo/{address}`.
+- Local P2PKH transaction construction and secp256k1 signing.
+- Signed transaction preview.
+- Live network submit through the PEPEW Light wallet endpoint.
+- Demo read-only address toggle for API testing.
 
 ## Safety boundary
 
-This is not a production send implementation.
+This is **not** production wallet code.
 
-Not implemented:
+Known limitations:
 
-- Real seed handling.
-- Real key derivation.
-- Real address derivation.
-- Real UTXO selection.
-- Real transaction construction.
-- Real approval/signing.
-- Real network submission.
+- The prototype uses simplified `sha256(seed phrase)` derivation, not reviewed BIP39/BIP32/BIP44 wallet-core logic.
+- WIF reveal is enabled for testing only.
+- Fee/change logic is minimal.
+- UTXO parsing is best-effort against current PEPEW Light API response variants.
+- No encrypted persistent wallet storage is implemented.
+- No PIN, biometric lock, or auto-lock is implemented.
+- Use small test funds only.
 
-No backend submit call is made by the Phase 3 preview Send flow.
+## Current test status
 
-## Test path
+Observed before merge:
 
-In Google AI Studio preview:
+- Receive: PASS
+- Balance: PASS
+- History: PASS
+- UTXO/send: under test
+- Broadcast: under test
 
-1. Generate seed phrase.
-2. Check all confirmation boxes.
-3. Enter wallet.
-4. Open Send.
-5. Enter a P-prefixed address and positive amount.
-6. Tap `PREPARE MOCK SEND`.
-7. Review the local mock summary.
-8. Tap `CONFIRM LOCAL MOCK`.
-9. Confirm Dashboard shows a pending local mock send transaction.
+The send path now includes broader UTXO parser support for fields such as `value_atoms`, `amount_atoms`, `atoms`, `satoshis`, `value`, `amount`, `txid`, `tx_hash`, `vout`, and `tx_pos`.
 
-## Next real implementation notes
+## Next implementation notes
 
-Before production send is added, the app needs independently reviewed wallet-core logic:
+Before production release, replace the experimental wallet core with independently reviewed logic:
 
-- deterministic address derivation,
-- encrypted local storage,
-- fee/change calculation,
-- UTXO selection,
-- transaction construction,
-- local approval/signing,
-- signed raw transaction submission only.
+- BIP39 mnemonic generation/import.
+- BIP32/BIP44 or PEPEW-specific derivation path.
+- Address gap scan and restore flow.
+- Audited UTXO selection.
+- Fee/change policy.
+- Transaction signing test vectors.
+- Encrypted local storage.
+- PIN / biometric / auto-lock.
+- External wallet-core review.
