@@ -48,6 +48,8 @@ const DEMO_ADDRESS = "PRfbEeHAKKbz6Voz85WJudrJwTA3ZbHunb";
 const WORDS = ["swamp", "pepe", "key", "power", "wallet", "frog", "meme", "blockchain", "pond", "green", "crypto", "speed"];
 const DEFAULT_RECIPIENT = "PL8s5WjXUGhHVSo743dwEXGtsifV5YpdcD";
 const MOCK_FEE = 0.001;
+const REFRESH_COOLDOWN_MS = 15_000;
+const POST_BROADCAST_REFRESH_DELAYS_MS = [12_000, 45_000];
 
 function safeText(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -232,6 +234,8 @@ export default function App() {
   const [showWif, setShowWif] = useState(false);
   const [useDemoAddress, setUseDemoAddress] = useState(false);
   const [copiedText, setCopiedText] = useState("");
+  const [lastRefreshAt, setLastRefreshAt] = useState(0);
+  const [refreshCooldownSeconds, setRefreshCooldownSeconds] = useState(0);
 
   const localWallet = useMemo(() => {
     const mnemonic = words.join(" ").trim();
@@ -245,15 +249,38 @@ export default function App() {
 
   const activeAddress = useDemoAddress ? DEMO_ADDRESS : localWallet.address;
 
-  async function refreshApi(options?: { keepLocal?: boolean }) {
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (!lastRefreshAt) {
+        setRefreshCooldownSeconds(0);
+        return;
+      }
+      const remaining = Math.max(0, Math.ceil((REFRESH_COOLDOWN_MS - (Date.now() - lastRefreshAt)) / 1000));
+      setRefreshCooldownSeconds(remaining);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [lastRefreshAt]);
+
+  async function refreshApi(options?: { keepLocal?: boolean; force?: boolean; reason?: "initial" | "manual" | "auto" }) {
+    const now = Date.now();
+    const elapsed = now - lastRefreshAt;
+    if (!options?.force && lastRefreshAt > 0 && elapsed < REFRESH_COOLDOWN_MS) {
+      const waitSeconds = Math.ceil((REFRESH_COOLDOWN_MS - elapsed) / 1000);
+      setApiMessage(`Refresh cooling down. Try again in ${waitSeconds}s.`);
+      return;
+    }
+
+    setLastRefreshAt(now);
+    setRefreshCooldownSeconds(Math.ceil(REFRESH_COOLDOWN_MS / 1000));
     setApiState("CONNECTED");
-    setApiMessage(`Querying ${shortText(activeAddress)}...`);
+    setApiMessage(options?.reason === "manual" ? "Manual refresh started..." : `Querying ${shortText(activeAddress)}...`);
     try {
+      const cacheBust = options?.force ? `?t=${now}` : "";
       const [statusRes, summaryRes, historyRes, utxoRes] = await Promise.all([
-        fetch(`${API_BASE}/api/status`),
-        fetch(`${API_BASE}/api/wallet/address/${activeAddress}`),
-        fetch(`${API_BASE}/api/wallet/history/${activeAddress}?limit=50&offset=0`),
-        fetch(`${API_BASE}/api/wallet/utxo/${activeAddress}?t=${Date.now()}`),
+        fetch(`${API_BASE}/api/status${cacheBust}`),
+        fetch(`${API_BASE}/api/wallet/address/${activeAddress}${cacheBust}`),
+        fetch(`${API_BASE}/api/wallet/history/${activeAddress}?limit=50&offset=0${options?.force ? `&t=${now}` : ""}`),
+        fetch(`${API_BASE}/api/wallet/utxo/${activeAddress}${cacheBust}`),
       ]);
       const status = await statusRes.json().catch(() => ({}));
       const summary = await summaryRes.json().catch(() => ({}));
@@ -281,7 +308,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (walletReady) refreshApi({ keepLocal: true });
+    if (walletReady) refreshApi({ keepLocal: true, reason: "initial", force: true });
   }, [walletReady, activeAddress]);
 
   function handleCopy(text: string, label: string) {
@@ -308,6 +335,7 @@ export default function App() {
     setCustomSeedInput("");
     setSendError("");
     setLocalTxs([]);
+    setLastRefreshAt(0);
   }
 
   async function prepareLocalTransaction() {
@@ -393,9 +421,10 @@ export default function App() {
       setUtxoCount(0);
       setBroadcastResult({ success: true, txid });
       setSignedTxHex("");
-      setSendError("Broadcast submitted. API/explorer may need a few seconds to refresh.");
-      setTimeout(() => refreshApi({ keepLocal: true }), 5000);
-      setTimeout(() => refreshApi({ keepLocal: true }), 15000);
+      setSendError("Broadcast submitted. Auto refresh is rate-limited to reduce server load; use manual refresh after cooldown if needed.");
+      POST_BROADCAST_REFRESH_DELAYS_MS.forEach(delay => {
+        window.setTimeout(() => refreshApi({ keepLocal: true, force: true, reason: "auto" }), delay);
+      });
     } catch (err) {
       setBroadcastResult({ success: false, error: err instanceof Error ? err.message : "Broadcast failed." });
     } finally {
@@ -454,6 +483,7 @@ export default function App() {
             <div className="font-mono text-3xl font-black tracking-widest">{formatAmount(balance)} <span className="text-sm">PEPEW</span></div>
             <div className="mt-5 border-t border-green-500 pt-4 font-mono text-xs">Address: <button onClick={() => handleCopy(activeAddress, "address")} className="underline">{shortText(activeAddress, 8, 6)}</button></div>
           </section>
+          <div className="rounded-2xl bg-white p-3 font-mono text-[11px] text-slate-500">API refresh cooldown: {refreshCooldownSeconds > 0 ? `${refreshCooldownSeconds}s` : "ready"}</div>
           <div className="grid grid-cols-4 gap-3">
             <button onClick={openSend} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Send className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Send</div></button>
             <button onClick={() => setScreen("receive")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><ArrowDownLeft className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Receive</div></button>
@@ -461,7 +491,7 @@ export default function App() {
             <button onClick={() => setScreen("settings")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Settings className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Settings</div></button>
           </div>
           <section className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between font-mono text-xs font-bold tracking-widest text-slate-400">RECENT ACTIVITY ({txs.length}) <button onClick={() => refreshApi({ keepLocal: true })}><RefreshCcw size={14} /></button></div>
+            <div className="mb-3 flex items-center justify-between font-mono text-xs font-bold tracking-widest text-slate-400">RECENT ACTIVITY ({txs.length}) <button disabled={refreshCooldownSeconds > 0} onClick={() => refreshApi({ keepLocal: true, reason: "manual" })} className="disabled:opacity-40" title={refreshCooldownSeconds > 0 ? `Wait ${refreshCooldownSeconds}s` : "Refresh"}><RefreshCcw size={14} /></button></div>
             {txs.length === 0 ? <div className="py-8 text-center text-sm text-slate-400">No transaction history found on API.</div> : <div className="space-y-3">{txs.slice(0, 3).map(tx => <TxCard key={tx.id} tx={tx} />)}</div>}
           </section>
         </main>
@@ -503,14 +533,15 @@ export default function App() {
       {screen === "history" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
           <div className="rounded-2xl bg-white p-4 font-mono text-xs text-slate-500">Querying: <span className="font-bold text-green-800">{shortText(activeAddress, 10, 8)}</span></div>
+          <button disabled={refreshCooldownSeconds > 0} onClick={() => refreshApi({ keepLocal: true, reason: "manual" })} className="w-full rounded-2xl bg-white py-3 font-mono text-xs font-bold text-green-700 shadow-sm disabled:text-slate-300">{refreshCooldownSeconds > 0 ? `REFRESH AVAILABLE IN ${refreshCooldownSeconds}s` : "REFRESH HISTORY"}</button>
           {txs.length === 0 ? <div className="rounded-3xl border border-green-200 bg-white p-8 text-center text-sm text-slate-500">No transactions returned from API. Recent local broadcasts stay visible until API history catches up.</div> : txs.map(tx => <TxCard key={tx.id} tx={tx} />)}
         </main>
       )}
 
       {screen === "settings" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
-          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW Wallet</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Version:</span><b className="text-green-700">1.0.2 (Phase 3 Experimental)</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Network:</span><b>P2PKH v55</b></div><div className="flex justify-between py-3"><span className="font-mono text-xs text-slate-400">Height:</span><b>{height}</b></div></section>
-          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-500">INTERACTIVE ADDRESS SWITCHING</div><label className="flex items-center justify-between rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-900">Use Demo Read-Only Address<input type="checkbox" checked={useDemoAddress} onChange={e => { setUseDemoAddress(e.target.checked); setLocalTxs([]); setBroadcastResult(null); }} /></label><div className="mt-3 break-all rounded-xl bg-slate-50 p-3 font-mono text-[11px] text-slate-400">Selected Address: {activeAddress}</div></section>
+          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW Wallet</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Version:</span><b className="text-green-700">1.0.3 (Phase 3 Experimental)</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Network:</span><b>P2PKH v55</b></div><div className="flex justify-between py-3"><span className="font-mono text-xs text-slate-400">Height:</span><b>{height}</b></div></section>
+          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-500">INTERACTIVE ADDRESS SWITCHING</div><label className="flex items-center justify-between rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-900">Use Demo Read-Only Address<input type="checkbox" checked={useDemoAddress} onChange={e => { setUseDemoAddress(e.target.checked); setLocalTxs([]); setBroadcastResult(null); setLastRefreshAt(0); }} /></label><div className="mt-3 break-all rounded-xl bg-slate-50 p-3 font-mono text-[11px] text-slate-400">Selected Address: {activeAddress}</div></section>
           <section className="rounded-3xl border border-green-200 bg-green-50 p-5 text-sm leading-6 text-green-900">🔒 Private keys, derived keys, and signing are local browser-preview logic. Never use this experimental prototype with large funds.</section>
           <button onClick={() => setScreen("seed")} className="w-full rounded-2xl bg-red-600 py-4 font-mono text-xs font-bold tracking-widest text-white">WIPE & RESET WALLET</button>
         </main>
