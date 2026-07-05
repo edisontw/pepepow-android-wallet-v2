@@ -9,7 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
-import net.pepepow.wallet.data.FakeWalletRepository
+import net.pepepow.wallet.data.PepewApiClient
+import net.pepepow.wallet.data.ReadOnlyApiWalletRepository
 import net.pepepow.wallet.navigation.WalletNavGraph
 import net.pepepow.wallet.viewmodel.*
 import net.pepepow.wallet.ui.theme.PepepowWalletTheme
@@ -17,8 +18,8 @@ import net.pepepow.wallet.ui.theme.PepepowWalletTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val repository = FakeWalletRepository()
-        
+        val repository = ReadOnlyApiWalletRepository(PepewApiClient())
+
         setContent {
             PepepowWalletTheme {
                 Surface(
@@ -29,9 +30,9 @@ class MainActivity : ComponentActivity() {
                     val sendViewModel: SendViewModel = viewModel { SendViewModel(repository) }
                     val historyViewModel: HistoryViewModel = viewModel { HistoryViewModel(repository) }
                     val apiStatusViewModel: ApiStatusViewModel = viewModel { ApiStatusViewModel(repository) }
-                    
+
                     val navController = rememberNavController()
-                    
+
                     WalletNavGraph(
                         navController = navController,
                         walletViewModel = walletViewModel,
