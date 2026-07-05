@@ -1,129 +1,105 @@
-# PEPEW Wallet (Android Studio Kotlin Project Template)
+# PEPEW Wallet
 
-A native Kotlin + Jetpack Compose Android project for the **PEPEW Wallet** prototype.
+Experimental PEPEPOW wallet preview for rapid Google AI Studio / Vite testing and later native Android wallet design.
 
-* **Package ID:** `net.pepepow.wallet`
-* **Current Status:** **Phase 3 Safe Mock Send Scaffold**
+- App name: `PEPEW Wallet`
+- Android package target: `net.pepepow.wallet`
+- Public API: `https://light.pepepow.net/`
+- Current phase: **Phase 4A restore preview scaffold**
 
----
+## Security warning
 
-## Important Security Warning
+This repository is still experimental.
 
-**This version is still a prototype. Phase 3 adds a mock Send UX scaffold only.**
+- Use small test funds only.
+- Current preview derivation is prototype logic, not reviewed production wallet-core.
+- No production BIP39/BIP32/BIP44 compatibility is claimed yet.
+- No encrypted storage, PIN, biometric lock, or auto-lock is implemented yet.
+- Recovery words and signing logic must stay local.
+- The public API should receive only addresses, UTXO/history requests, and signed raw transactions.
 
-* It **does not** implement real recovery-word generation.
-* It **does not** store real recovery words.
-* It **does not** implement key derivation.
-* It **does not** implement real address derivation.
-* It **does not** implement real transaction approval.
-* It **does not** implement real coin/output selection.
-* It **does not** implement real network submission.
-* It calls public read endpoints for health/status/address balance/history.
-* The preview Send flow only creates a local mock pending item.
-* No real wallet secrets are handled or transmitted.
+## Current working preview
 
----
+The root `src/App.tsx` Vite preview currently supports:
 
-## Tech Stack
+- local test wallet open flow
+- PEPEW P2PKH address derivation for preview testing
+- balance lookup through PEPEW Light
+- history lookup with wallet-oriented amount and direction fields
+- UTXO lookup
+- local transaction prepare/sign for small test funds
+- review-before-broadcast card
+- signed raw transaction broadcast through PEPEW Light
+- post-broadcast optimistic update and delayed refresh
+- manual refresh cooldown
+- duplicate broadcast prevention
 
-* **Kotlin** (1.8.10)
-* **Jetpack Compose** (Compose BOM 2023.08.00)
-* **Material 3 UI Elements**
-* **Navigation Compose**
-* **ViewModel Layer**
-* **Repository Pattern** with both `FakeWalletRepository` and active `ReadOnlyApiWalletRepository`
-* **Google AI Studio / Vite Preview** for rapid UX checks
+## Phase status
 
----
+### Phase 1 — Mock wallet
 
-## Architecture
+Done.
 
-The Android source code resides inside `app/src/main/java/net/pepepow/wallet/`:
+### Phase 2 — Read-only API
 
-* **`ui/`**: Compose screens and app theme.
-* **`viewmodel/`**: `WalletViewModel`, `SendViewModel`, `HistoryViewModel`, and `ApiStatusViewModel`.
-* **`data/`**: `WalletRepository`, `FakeWalletRepository`, `ReadOnlyApiWalletRepository`, and `PepewApiClient`.
-* **`domain/`**: Pure helper logic.
-* **`security/`**: Placeholder `EncryptedStorage`. It does not store real recovery data in this prototype.
-* **`navigation/`**: Route definitions and navigation graph.
+Done.
 
----
+### Phase 3 — Experimental send
 
-## Phase 2 Read-only API Specifications
+Done for small-fund preview testing.
 
-* **Endpoint:** `https://light.pepepow.net/`
-* **Active runtime data source:** `ReadOnlyApiWalletRepository`
-* **Demo read-only address:** `PRfbEeHAKKbz6Voz85WJudrJwTA3ZbHunb`
-* **Balance behavior:** read-only API lookup by address
-* **History behavior:** read-only API lookup by address
-* **API status behavior:** real `GET /api/health` and `GET /api/status`
+Key documents:
 
----
+- `PHASE3_STATUS.md`
+- `PHASE3_2_RELIABILITY.md`
+- `PHASE3_3_STRUCTURE.md`
 
-## Phase 3 Mock Send Scaffold
+### Phase 4A — Restore preview
 
-The root `src/App.tsx` preview includes a mock Send flow for UX validation:
+In progress.
 
-* recipient validation
-* amount validation
-* mock fee display
-* mock local prepare step
-* mock local confirmation
-* pending local transaction inserted into the preview transaction list
+Current scaffold:
 
-This flow does not create or submit a real blockchain transaction.
+- `PHASE4_RESTORE_PLAN.md`
+- `PHASE4A_UI_STATUS.md`
+- `src/restore/restoreTypes.ts`
+- `src/restore/restoreValidation.ts`
+- `src/restore/walletScanner.ts`
+- `src/wallet/walletDeriver.ts`
+- `src/screens/RestoreScreen.tsx`
+- `src/screens/SeedStartScreen.tsx`
 
----
+The restore screen components are ready, but final `App.tsx` wiring is still pending.
 
-## Current Active Data Source
-
-`MainActivity` currently creates:
-
-```kotlin
-val repository = ReadOnlyApiWalletRepository(PepewApiClient())
-```
-
-`FakeWalletRepository` remains in the codebase for mock mode, previews, fallback testing, and Phase 1 comparison.
-
----
-
-## Development Roadmap
-
-1. **Phase 1:** Mock wallet UI, navigation, ViewModels, fake repository state, fake send, and placeholder API/security classes.
-2. **Phase 2:** Read-only API integration for balance/history/status only. No seed, key, transaction approval, output selection, or network submit logic.
-3. **Phase 3 (Current):** Safe mock Send scaffold. Production send still requires reviewed wallet-core logic.
-4. **Phase 4:** Restore wallet flow and address scanning.
-5. **Phase 5:** Keystore/encrypted storage, PIN/biometric, auto-lock, audit, and release hardening.
-
-See also:
-
-* [`PHASE1_STATUS.md`](PHASE1_STATUS.md)
-* [`TODO_PHASE2_API.md`](TODO_PHASE2_API.md)
-* [`PHASE2_STATUS.md`](PHASE2_STATUS.md)
-* [`PHASE3_STATUS.md`](PHASE3_STATUS.md)
-
----
-
-## How to Run the Project in Android Studio
-
-### Prerequisites
-
-1. Download and install **Android Studio**.
-2. Install Android SDK 34 or newer.
-3. Use JDK 17.
-
-### Import and Build
-
-1. Open Android Studio.
-2. Select the repository root folder.
-3. Let Android Studio run Gradle Sync.
-4. Select the `app` run configuration.
-5. Build or run on an emulator/device.
-
-Manual build command, if a Gradle wrapper is available locally:
+## Web preview development
 
 ```bash
-./gradlew assembleDebug
+npm install
+npm run lint
+npm run build
+npm run dev
 ```
 
-If no wrapper is present, run the equivalent Gradle task from Android Studio or generate a wrapper locally.
+## GitHub Actions
+
+A web preview workflow is available:
+
+```text
+.github/workflows/web-preview.yml
+```
+
+It runs:
+
+```text
+npm install
+npm run lint
+npm run build
+```
+
+## Suggested next work
+
+1. Wire `SeedStartScreen` and `RestoreScreen` into `App.tsx`.
+2. Continue splitting `App.tsx` into smaller screen components.
+3. Keep restore prototype-only until wallet-core derivation is reviewed.
+4. Add production restore design with receive/change chains, gap limit, history scan, and UTXO rebuild.
+5. Add encrypted storage, PIN/biometric lock, and auto-lock in Phase 5.
