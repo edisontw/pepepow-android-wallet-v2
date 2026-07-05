@@ -1,6 +1,6 @@
 # PEPEW Wallet (Android Studio Kotlin Project Template)
 
-A complete native Kotlin + Jetpack Compose Android project for the **PEPEW Wallet**, built following modern Android design guidelines and architectural best practices.
+A native Kotlin + Jetpack Compose Android project for the **PEPEW Wallet** Phase 1 prototype.
 
 * **Package ID:** `net.pepepow.wallet`
 * **Current Status:** **Phase 1 Mock Wallet Prototype**
@@ -8,66 +8,102 @@ A complete native Kotlin + Jetpack Compose Android project for the **PEPEW Walle
 ---
 
 ## ⚠️ Important Security Warning
-**This version is for Phase 1 prototyping and utilizes mock data only.**  
+
+**This version is for Phase 1 prototyping and uses mock data only.**
+
 * It **does not** implement real 12-word seed/mnemonic generation.
 * It **does not** store real mnemonic data.
-* It **does not** implement private key derivation, transaction signing, UTXO selection, or transaction broadcasting.
+* It **does not** implement private key derivation.
+* It **does not** implement real address derivation.
+* It **does not** implement transaction signing.
+* It **does not** implement UTXO selection.
+* It **does not** implement real transaction broadcasting.
+* It **does not** make real PEPEW Light API calls yet.
 * No private keys or real cryptocurrency balances are handled or transmitted.
 
 ---
 
 ## Tech Stack
+
 * **Kotlin** (1.8.10)
 * **Jetpack Compose** (Compose BOM 2023.08.00)
 * **Material 3 UI Elements**
-* **Navigation Compose** (Declarative route navigation)
-* **ViewModel Layer** (Decoupled state management)
-* **Repository Pattern** (`FakeWalletRepository` offline backend simulation)
+* **Navigation Compose**
+* **ViewModel Layer**
+* **Repository Pattern** with `FakeWalletRepository` as the only active data source
 
 ---
 
 ## Architecture
-The source code resides inside `app/src/main/java/net/pepepow/wallet/` and is divided into clean, decoupled modules:
 
-* **`ui/`**: Layout screens (`Screens.kt`) and primary `MainActivity` built with elegant dark themes, space-optimized paddings, and standard Compose surface styles.
-* **`viewmodel/`**: Dynamic viewmodels (`WalletViewModel.kt`, `SendViewModel.kt`, `HistoryViewModel.kt`, `ApiStatusViewModel.kt`) separating logic from ui layers.
-* **`data/`**: Interface boundaries (`WalletRepository.kt`), active implementation state (`FakeWalletRepository.kt`), and Phase 2 node endpoints (`PepewApiClient.kt`).
-* **`domain/`**: Pure domain helper classes (`WalletUseCases.kt`) for parsing validations and calculations.
-* **`security/`**: Storage interface helpers (`EncryptedStorage.kt`) ready to be upgraded with hardware keys in Phase 2.
-* **`navigation/`**: Central route definitions (`WalletRoutes.kt`) and graph state handlers (`WalletNavGraph.kt`).
+The Android source code resides inside `app/src/main/java/net/pepepow/wallet/`:
+
+* **`ui/`**: Compose screens and app theme.
+* **`viewmodel/`**: `WalletViewModel`, `SendViewModel`, `HistoryViewModel`, and `ApiStatusViewModel`.
+* **`data/`**: `WalletRepository`, active `FakeWalletRepository`, and placeholder `PepewApiClient`.
+* **`domain/`**: Pure helper logic.
+* **`security/`**: Placeholder `EncryptedStorage`. It does not store real seed data in Phase 1.
+* **`navigation/`**: Route definitions and navigation graph.
 
 ---
 
 ## Phase 1 Mock Specifications
+
 * **Active Wallet Address:** `PExamplePepepowAddress123456789`
 * **Mock Balance:** `12345.6789 PEPEW`
-* **Reserved Endpoint (Phase 2 Integration):** `https://light.pepepow.net/`
+* **Reserved Endpoint shown in UI:** `https://light.pepepow.net/`
+* **Send behavior:** fake local pending transaction only
+* **API status behavior:** simulated local state only
+
+---
+
+## Current Active Data Source
+
+`MainActivity` directly creates:
+
+```kotlin
+val repository = FakeWalletRepository()
+```
+
+This is intentional for Phase 1. Do not replace it with a real API repository until Phase 2.
 
 ---
 
 ## Development Roadmap
-1. **Phase 1 (Current):** Mock wallet with UI/UX transitions, offline database models, and mock state managers.
-2. **Phase 2:** Read-Only API sync with public nodes to track addresses.
-3. **Phase 3:** Integration of local cryptographic seed generation and standard key derivation.
-4. **Phase 4:** Restore capabilities and secure transaction signing.
-5. **Phase 5:** Hardware keystore integration, release audit, and play store publishing.
+
+1. **Phase 1 (Current):** Mock wallet UI, navigation, ViewModels, fake repository state, fake send, and placeholder API/security classes.
+2. **Phase 2:** Read-only API integration for balance/history/status only. No seed, key, signing, UTXO, or broadcast logic.
+3. **Phase 3:** Local transaction preparation/signing design. Private keys must stay local.
+4. **Phase 4:** Restore wallet flow and address scanning.
+5. **Phase 5:** Keystore/encrypted storage, PIN/biometric, auto-lock, audit, and release hardening.
+
+See also:
+
+* [`PHASE1_STATUS.md`](PHASE1_STATUS.md)
+* [`TODO_PHASE2_API.md`](TODO_PHASE2_API.md)
 
 ---
 
 ## How to Run the Project in Android Studio
 
 ### Prerequisites
-1. Download and install **Android Studio** (Ladybug 2024.2.1 or newer recommended).
-2. Android SDK 34 (Upside Down Cake) or newer configured.
+
+1. Download and install **Android Studio**.
+2. Install Android SDK 34 or newer.
+3. Use JDK 17.
 
 ### Import and Build
-1. In AI Studio, click on **Settings (Gear Icon) -> Export to ZIP** to download the clean project structure.
-2. Extract the downloaded ZIP archive to your local directory.
-3. Open Android Studio, click on **Open**, and navigate to the extracted directory containing the project root.
-4. Select the folder and click **OK**. Android Studio will import the project and automatically trigger a **Gradle Sync**.
-5. Once the sync is complete, select **app** in the Run configurations dropdown.
 
-### Running on Emulator or Physical Device
-1. To run on an **Emulator**: Open the **Device Manager**, select or create an Android Virtual Device (AVD) running API level 26 (Android 8.0) or newer, and start it.
-2. To run on a **Physical Device**: Enable **USB Debugging** on your device, connect it via USB or WiFi, and ensure it appears in the device dropdown list.
-3. Click the **Run button (Green Play Icon)** or press `Shift + F10` (`Control + R` on macOS) to compile and install the APK on the device.
+1. Open Android Studio.
+2. Select the repository root folder.
+3. Let Android Studio run Gradle Sync.
+4. Select the `app` run configuration.
+5. Build or run on an emulator/device.
+
+Manual build command, if a Gradle wrapper is available locally:
+
+```bash
+./gradlew assembleDebug
+```
+
+If no wrapper is present, run the equivalent Gradle task from Android Studio or generate a wrapper locally.
