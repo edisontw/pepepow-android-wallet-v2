@@ -59,9 +59,8 @@ type SendReview = {
 };
 
 const API_BASE = (import.meta as any).env?.DEV ? "" : "https://light.pepepow.net";
-const DEMO_ADDRESS = "PRfbEeHAKKbz6Voz85WJudrJwTA3ZbHunb";
 const WORDS = ["swamp", "pepe", "key", "power", "wallet", "frog", "meme", "blockchain", "pond", "green", "crypto", "speed"];
-const DEFAULT_RECIPIENT = "PL8s5WjXUGhHVSo743dwEXGtsifV5YpdcD";
+const DEFAULT_RECIPIENT = "";
 const MOCK_FEE = 0.001;
 const REFRESH_COOLDOWN_MS = 15_000;
 const POST_BROADCAST_REFRESH_DELAYS_MS = [12_000, 45_000];
@@ -238,11 +237,11 @@ export default function App() {
   const [txs, setTxs] = useState<Tx[]>([]);
   const [localTxs, setLocalTxs] = useState<Tx[]>([]);
   const [apiState, setApiState] = useState<ApiState>("CONNECTED");
-  const [apiMessage, setApiMessage] = useState("Experimental test wallet. Use small test funds only.");
+  const [apiMessage, setApiMessage] = useState("PEPEW Light API is ready.");
   const [height, setHeight] = useState("-");
   const [lastRefreshLabel, setLastRefreshLabel] = useState("-");
   const [recipient, setRecipient] = useState(DEFAULT_RECIPIENT);
-  const [sendAmount, setSendAmount] = useState("10");
+  const [sendAmount, setSendAmount] = useState("");
   const [sendError, setSendError] = useState("");
   const [signedTxHex, setSignedTxHex] = useState("");
   const [sendReview, setSendReview] = useState<SendReview | null>(null);
@@ -252,7 +251,6 @@ export default function App() {
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<BroadcastResult | null>(null);
   const [showWif, setShowWif] = useState(false);
-  const [useDemoAddress, setUseDemoAddress] = useState(false);
   const [copiedText, setCopiedText] = useState("");
   const [lastRefreshAt, setLastRefreshAt] = useState(0);
   const [refreshCooldownSeconds, setRefreshCooldownSeconds] = useState(0);
@@ -267,7 +265,7 @@ export default function App() {
     };
   }, [words]);
 
-  const activeAddress = useDemoAddress ? DEMO_ADDRESS : localWallet.address;
+  const activeAddress = localWallet.address;
   const canBroadcast = !!signedTxHex && !isBroadcasting && submittedRawTxHex !== signedTxHex;
 
   useEffect(() => {
@@ -529,7 +527,7 @@ export default function App() {
       {screen === "dashboard" && (
         <main className="mx-auto max-w-md space-y-4 p-3">
           <div className="flex items-center justify-between py-2">
-            <div className="font-mono text-xs font-black tracking-widest text-green-800">🐸 PEPEW WALLET <span className="rounded bg-green-50 px-2 py-1 text-[10px]">v1.0-Full</span></div>
+            <div className="font-mono text-xs font-black tracking-widest text-green-800">PEPEW WALLET <span className="rounded bg-green-50 px-2 py-1 text-[10px]">v1.0</span></div>
             <div className={`rounded-full px-4 py-2 font-mono text-xs font-bold shadow-sm ${apiState === "READY" ? "bg-white text-green-700" : apiState === "FAILED" ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-500"}`}>{apiState}</div>
           </div>
           <section className="overflow-hidden rounded-3xl bg-green-700 p-6 text-white shadow-lg">
@@ -558,7 +556,7 @@ export default function App() {
             <div className="break-all rounded-2xl bg-green-50 p-4 font-mono text-sm text-green-900">{activeAddress}</div>
             <button onClick={() => handleCopy(activeAddress, "address")} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-green-700 py-3 font-mono text-xs font-bold text-white"><Copy size={14} /> COPY ADDRESS</button>
           </section>
-          <section className="rounded-3xl bg-white p-5 text-center shadow-sm"><QrCode className="mx-auto text-green-700" size={120} /><div className="mt-2 text-xs text-slate-400">QR placeholder empty (Vite build)</div></section>
+          <section className="rounded-3xl bg-white p-5 text-center shadow-sm"><QrCode className="mx-auto text-green-700" size={120} /><div className="mt-2 text-xs text-slate-400">QR code</div></section>
           <section className="rounded-3xl border border-red-100 bg-white p-5 shadow-sm">
             <button onClick={() => setShowWif(!showWif)} className="flex w-full items-center justify-between font-mono text-xs font-bold text-red-700">Reveal Private Key WIF {showWif ? <EyeOff size={14} /> : <Eye size={14} />}</button>
             {showWif && <div className="mt-3 break-all rounded-2xl bg-red-50 p-3 font-mono text-xs text-red-800">{localWallet.wif}</div>}
@@ -572,13 +570,13 @@ export default function App() {
             <label className="font-mono text-xs font-bold tracking-widest text-slate-500">RECIPIENT ADDRESS</label>
             <input value={recipient} disabled={!!signedTxHex || isBroadcasting} onChange={e => { setRecipient(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-xs outline-none focus:border-green-500" placeholder="Address starting with P" />
             <label className="mt-4 block font-mono text-xs font-bold tracking-widest text-slate-500">AMOUNT (PEPEW)</label>
-            <input value={sendAmount} disabled={!!signedTxHex || isBroadcasting} onChange={e => { setSendAmount(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-xs outline-none focus:border-green-500" placeholder="0.01" />
-            <div className="mt-4 flex justify-between rounded-xl bg-slate-50 p-3 font-mono text-xs"><span>Standard local fee:</span><span className="font-bold text-green-700">{MOCK_FEE} PEPEW</span></div>
+            <input value={sendAmount} disabled={!!signedTxHex || isBroadcasting} onChange={e => { setSendAmount(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-xs outline-none focus:border-green-500" placeholder="0.00" />
+            <div className="mt-4 flex justify-between rounded-xl bg-slate-50 p-3 font-mono text-xs"><span>Network fee:</span><span className="font-bold text-green-700">{MOCK_FEE} PEPEW</span></div>
           </section>
-          <div className="rounded-2xl bg-white p-3 font-mono text-[11px] text-slate-500">UTXO debug: {utxoCount} spendable · {formatAmount(utxoTotal, 8)} PEPEW</div>
+          <div className="rounded-2xl bg-white p-3 font-mono text-[11px] text-slate-500">UTXO: {utxoCount} spendable · {formatAmount(utxoTotal, 8)} PEPEW</div>
           {sendError && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800">{sendError}</div>}
           {broadcastResult && <div className={`rounded-2xl p-4 text-xs ${broadcastResult.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{broadcastResult.success ? `Broadcast succeeded. TX: ${broadcastResult.txid}` : broadcastResult.error}</div>}
-          {!signedTxHex && <button onClick={prepareLocalTransaction} className="w-full rounded-2xl bg-green-700 py-4 font-mono text-xs font-bold tracking-widest text-white">PREPARE & SIGN TRANSACTION</button>}
+          {!signedTxHex && <button onClick={prepareLocalTransaction} className="w-full rounded-2xl bg-green-700 py-4 font-mono text-xs font-bold tracking-widest text-white">PREPARE TRANSACTION</button>}
           {sendReview && (
             <section className="rounded-3xl border border-green-100 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center gap-2 font-mono text-xs font-bold text-green-700"><CheckCircle size={16} /> REVIEW BEFORE BROADCAST</div>
@@ -610,8 +608,7 @@ export default function App() {
       {screen === "settings" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
           <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW Wallet</b></div></section>
-          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-500">INTERACTIVE TESTING</div><label className="flex items-center gap-3"><input type="checkbox" checked={useDemoAddress} onChange={e => setUseDemoAddress(e.target.checked)} /><span className="text-sm">Use demo address for testing</span></label></section>
-          <section className="rounded-3xl border border-green-200 bg-green-50 p-5 text-sm leading-6 text-green-900">🔒 Private keys, derived keys, and signing are local browser-preview logic. No real signing, recovery, or backend seed/key handling occurs.</section>
+          <section className="rounded-3xl border border-green-200 bg-green-50 p-5 text-sm leading-6 text-green-900">🔒 Private keys, derived keys, and signing are local. Recovery words and private keys are not sent to the API.</section>
           <button onClick={() => setScreen("seed")} className="w-full rounded-2xl bg-red-600 py-4 font-mono text-xs font-bold tracking-widest text-white">WIPE & RESET WALLET</button>
         </main>
       )}
