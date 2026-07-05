@@ -1,704 +1,352 @@
-import React, { useState } from "react";
-import { 
-  Folder, 
-  FileCode, 
-  Copy, 
-  Check, 
-  ExternalLink, 
-  Terminal, 
-  Settings, 
-  Shield, 
-  Info, 
-  Key, 
-  Activity, 
-  ChevronRight, 
-  CheckCircle
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  ArrowDownLeft,
+  ArrowLeft,
+  ArrowUpRight,
+  CheckCircle,
+  Copy,
+  History,
+  KeyRound,
+  QrCode,
+  RefreshCcw,
+  Send,
+  Settings,
+  ShieldCheck,
 } from "lucide-react";
 
-interface CodeFile {
-  name: string;
-  path: string;
-  category: "gradle" | "manifest" | "kotlin_data" | "kotlin_ui" | "kotlin_nav" | "kotlin_viewmodel" | "kotlin_security";
-  code: string;
+type Screen = "seed" | "confirm" | "dashboard" | "receive" | "history" | "send" | "api" | "settings";
+
+type ApiState = "CONNECTED" | "READY" | "FAILED";
+
+type Tx = {
+  id: string;
+  amount: number;
+  address: string;
+  timestamp: number;
+  isSend: boolean;
+  isPending?: boolean;
+};
+
+const API_BASE = "https://light.pepepow.net";
+const DEMO_ADDRESS = "PRfbEeHAKKbz6Voz85WJudrJwTA3ZbHunb";
+const WORDS = ["swamp", "pepe", "key", "power", "wallet", "frog", "meme", "blockchain", "pond", "green", "crypto", "speed"];
+
+function safeText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value);
 }
 
-const ANDROID_PROJECT_FILES: CodeFile[] = [
-  {
-    name: "settings.gradle.kts",
-    path: "settings.gradle.kts",
-    category: "gradle",
-    code: `pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        google()
-        mavenCentral()
-    }
+function shortText(value: unknown, head = 8, tail = 6): string {
+  const text = safeText(value);
+  if (text.length <= head + tail + 3) return text;
+  return `${text.slice(0, head)}...${text.slice(-tail)}`;
 }
 
-rootProject.name = "PepepowWallet"
-include(":app")`
-  },
-  {
-    name: "build.gradle.kts (Root)",
-    path: "build.gradle.kts",
-    category: "gradle",
-    code: `// Top-level build file where you can add configuration options common to all sub-projects/modules.
-plugins {
-    id("com.android.application") version "8.1.1" apply false
-    id("org.jetbrains.kotlin.android") version "1.8.10" apply false
-}`
-  },
-  {
-    name: "build.gradle.kts (App)",
-    path: "app/build.gradle.kts",
-    category: "gradle",
-    code: `plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+function safeNumber(value: unknown, fallback = 0): number {
+  const parsed = typeof value === "number" ? value : Number(safeText(value).replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-android {
-    namespace = "net.pepepow.wallet"
-    compileSdk = 34
-
-    defaultConfig {
-        applicationId = "net.pepepow.wallet"
-        minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
-    }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-    buildFeatures {
-        compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.4.3"
-    }
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
+function formatAmount(value: unknown, digits = 4): string {
+  return safeNumber(value).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
-dependencies {
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
-    implementation("androidx.activity:activity-compose:1.8.0")
-    implementation(platform("androidx.compose:compose-bom:2023.08.00"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.7.5")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
-
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2023.08.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
-}`
-  },
-  {
-    name: "AndroidManifest.xml",
-    path: "app/src/main/AndroidManifest.xml",
-    category: "manifest",
-    code: `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="net.pepepow.wallet">
-
-    <uses-permission android:name="android.permission.INTERNET" />
-
-    <application
-        android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
-        android:label="PEPEW Wallet"
-        android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.PepepowWallet">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:theme="@style/Theme.PepepowWallet">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-
-</manifest>`
-  },
-  {
-    name: "MainActivity.kt",
-    path: "app/src/main/java/net/pepepow/wallet/MainActivity.kt",
-    category: "kotlin_ui",
-    code: `package net.pepepow.wallet
-
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.*
-import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.compose.rememberNavController
-import net.pepepow.wallet.data.FakeWalletRepository
-import net.pepepow.wallet.navigation.WalletNavGraph
-import net.pepepow.wallet.viewmodel.*
-import net.pepepow.wallet.ui.theme.PepepowWalletTheme
-
-class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        val repository = FakeWalletRepository()
-        
-        setContent {
-            PepepowWalletTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    val walletViewModel: WalletViewModel = viewModel { WalletViewModel(repository) }
-                    val sendViewModel: SendViewModel = viewModel { SendViewModel(repository) }
-                    val historyViewModel: HistoryViewModel = viewModel { HistoryViewModel(repository) }
-                    val apiStatusViewModel: ApiStatusViewModel = viewModel { ApiStatusViewModel(repository) }
-                    
-                    val navController = rememberNavController()
-                    
-                    WalletNavGraph(
-                        navController = navController,
-                        walletViewModel = walletViewModel,
-                        sendViewModel = sendViewModel,
-                        historyViewModel = historyViewModel,
-                        apiStatusViewModel = apiStatusViewModel
-                    )
-                }
-            }
-        }
-    }
-}`
-  },
-  {
-    name: "WalletRepository.kt",
-    path: "app/src/main/java/net/pepepow/wallet/data/WalletRepository.kt",
-    category: "kotlin_data",
-    code: `package net.pepepow.wallet.data
-
-import kotlinx.coroutines.flow.StateFlow
-
-data class Transaction(
-    val id: String,
-    val amount: Double,
-    val address: String,
-    val timestamp: Long,
-    val isSend: Boolean,
-    val isPending: Boolean
-)
-
-enum class ApiState {
-    CONNECTED,
-    READY,
-    FAILED
+function formatDate(value: unknown): string {
+  const n = safeNumber(value, Date.now());
+  const millis = n > 0 && n < 10_000_000_000 ? n * 1000 : n;
+  const date = new Date(millis);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return date.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-interface WalletRepository {
-    val balance: StateFlow<Double>
-    val address: StateFlow<String>
-    val apiState: StateFlow<ApiState>
-    val transactions: StateFlow<List<Transaction>>
-    val mnemonic: StateFlow<String?>
-    val isWalletCreated: StateFlow<Boolean>
+function parseApiHistory(items: unknown): Tx[] {
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((raw, index) => {
+    if (!raw || typeof raw !== "object") return [];
+    const item = raw as Record<string, unknown>;
+    const id = safeText(item.txid ?? item.tx_hash ?? item.hash ?? item.id ?? `tx_${index}`);
+    const amountRaw = item.amount_pepew ?? item.value_pepew ?? item.delta_pepew ?? item.amount ?? item.value ?? item.balance_delta;
 
-    fun createWallet(): String
-    fun confirmBackup()
-    fun sendTx(recipientAddress: String, amount: Double): Boolean
-    fun retryConnection()
-    fun setApiState(state: ApiState)
-    fun clearWallet()
-}`
-  },
-  {
-    name: "FakeWalletRepository.kt",
-    path: "app/src/main/java/net/pepepow/wallet/data/FakeWalletRepository.kt",
-    category: "kotlin_data",
-    code: `package net.pepepow.wallet.data
+    // ElectrumX compact history can be txid/height only. Do not render it as +NaN.
+    if (amountRaw === undefined || amountRaw === null || amountRaw === "") return [];
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import java.util.UUID
+    const signedAmount = safeNumber(amountRaw, 0);
+    return [{
+      id,
+      amount: Math.abs(signedAmount),
+      address: safeText(item.address ?? id),
+      timestamp: safeNumber(item.timestamp ?? item.time, Date.now()),
+      isSend: safeText(item.direction).toLowerCase().includes("send") || signedAmount < 0,
+      isPending: safeNumber(item.height, 1) <= 0 || item.pending === true,
+    }];
+  });
+}
 
-class FakeWalletRepository : WalletRepository {
-    private val _balance = MutableStateFlow(12345.6789)
-    override val balance = _balance.asStateFlow()
+function mockTxs(): Tx[] {
+  const now = Date.now();
+  return [
+    { id: "mock_receive_001", amount: 420, address: "PRecvPepepowAddress999999", timestamp: now - 86_400_000, isSend: false },
+    { id: "mock_send_001", amount: 69, address: "PSendPepepowAddress777777", timestamp: now - 172_800_000, isSend: true },
+  ];
+}
 
-    private val _address = MutableStateFlow("PExamplePepepowAddress123456789")
-    override val address = _address.asStateFlow()
+function Header({ title, onBack }: { title: string; onBack?: () => void }) {
+  return (
+    <div className="flex items-center gap-3 border-b border-green-100 px-4 py-3 text-green-800">
+      {onBack && <button onClick={onBack} className="rounded-full p-1 active:scale-95"><ArrowLeft size={18} /></button>}
+      <div className="font-mono text-sm font-bold tracking-widest">{title}</div>
+    </div>
+  );
+}
 
-    private val _apiState = MutableStateFlow(ApiState.READY)
-    override val apiState = _apiState.asStateFlow()
-
-    private val _transactions = MutableStateFlow<List<Transaction>>(
-        listOf(
-            Transaction(
-                id = "tx_90123456789",
-                amount = 420.0,
-                address = "PRecvPepepowAddress999999",
-                timestamp = System.currentTimeMillis() - 86400000,
-                isSend = false,
-                isPending = false
-            ),
-            Transaction(
-                id = "tx_12345678901",
-                amount = 69.0,
-                address = "PSendPepepowAddress777777",
-                timestamp = System.currentTimeMillis() - 172800000,
-                isSend = true,
-                isPending = false
-            )
-        )
-    )
-    override val transactions = _transactions.asStateFlow()
-
-    private val _mnemonic = MutableStateFlow<String?>(null)
-    override val mnemonic = _mnemonic.asStateFlow()
-
-    private val _isWalletCreated = MutableStateFlow(false)
-    override val isWalletCreated = _isWalletCreated.asStateFlow()
-
-    override fun createWallet(): String {
-        val words = listOf(
-            "frog", "pond", "meme", "swamp", "crypto", 
-            "blockchain", "green", "pepe", "speed", 
-            "power", "wallet", "key"
-        )
-        val generated = words.shuffled().joinToString(" ")
-        _mnemonic.value = generated
-        return generated
-    }
-
-    override fun confirmBackup() {
-        _isWalletCreated.value = true
-    }
-
-    override fun sendTx(recipientAddress: String, amount: Double): Boolean {
-        if (!recipientAddress.startsWith("P") || recipientAddress.length < 20) {
-            return false
-        }
-        val currentBal = _balance.value
-        if (amount <= 0 || amount + 0.001 > currentBal) {
-            return false
-        }
-
-        _balance.value = currentBal - (amount + 0.001)
-
-        val newTx = Transaction(
-            id = "tx_" + UUID.randomUUID().toString().take(12),
-            amount = amount,
-            address = recipientAddress,
-            timestamp = System.currentTimeMillis(),
-            isSend = true,
-            isPending = true
-        )
-
-        _transactions.value = listOf(newTx) + _transactions.value
-        return true
-    }
-
-    override fun retryConnection() {
-        _apiState.value = ApiState.CONNECTED
-        _apiState.value = ApiState.READY
-    }
-
-    override fun setApiState(state: ApiState) {
-        _apiState.value = state
-    }
-
-    override fun clearWallet() {
-        _balance.value = 12345.6789
-        _mnemonic.value = null
-        _isWalletCreated.value = false
-        _transactions.value = emptyList()
-    }
-}`
-  },
-  {
-    name: "PepewApiClient.kt",
-    path: "app/src/main/java/net/pepepow/wallet/data/PepewApiClient.kt",
-    category: "kotlin_data",
-    code: `package net.pepepow.wallet.data
-
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-/**
- * PepewApiClient placeholder for Phase 2 node communication.
- * Currently returns mock data offline for the Phase 1 implementation.
- */
-class PepewApiClient(val baseUrl: String = "https://light.pepepow.net/") {
-    
-    suspend fun getBalance(address: String): Double = withContext(Dispatchers.IO) {
-        // Mock balance placeholder
-        12345.6789
-    }
-
-    suspend fun broadcastTransaction(hex: String): String = withContext(Dispatchers.IO) {
-        // Mock tx broadcast placeholder
-        "tx_" + java.util.UUID.randomUUID().toString().take(12)
-    }
-
-    suspend fun checkHealth(): Boolean = withContext(Dispatchers.IO) {
-        // Mock health check placeholder
-        true
-    }
-}`
-  },
-  {
-    name: "WalletViewModel.kt",
-    path: "app/src/main/java/net/pepepow/wallet/viewmodel/WalletViewModel.kt",
-    category: "kotlin_viewmodel",
-    code: `package net.pepepow.wallet.viewmodel
-
-import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.flow.StateFlow
-import net.pepepow.wallet.data.ApiState
-import net.pepepow.wallet.data.WalletRepository
-
-class WalletViewModel(
-    private val repository: WalletRepository
-) : ViewModel() {
-
-    val balance: StateFlow<Double> = repository.balance
-    val address: StateFlow<String> = repository.address
-    val apiState: StateFlow<ApiState> = repository.apiState
-    val mnemonic: StateFlow<String?> = repository.mnemonic
-    val isWalletCreated: StateFlow<Boolean> = repository.isWalletCreated
-
-    fun startCreateWallet() {
-        repository.createWallet()
-    }
-
-    fun confirmBackup() {
-        repository.confirmBackup()
-    }
-
-    fun clearWallet() {
-        repository.clearWallet()
-    }
-}`
-  },
-  {
-    name: "EncryptedStorage.kt",
-    path: "app/src/main/java/net/pepepow/wallet/security/EncryptedStorage.kt",
-    category: "kotlin_security",
-    code: `package net.pepepow.wallet.security
-
-import android.content.Context
-
-/**
- * Placeholder for Phase 2 secure storage.
- * Currently, for the Phase 1 mock wallet, we do not save or store real mnemonic seed phrase data.
- */
-class EncryptedStorage(context: Context) {
-    
-    fun saveMnemonic(mnemonic: String) {
-        // Placeholder: No real seed data stored yet in Phase 1 mock wallet
-    }
-
-    fun getMnemonic(): String? {
-        // Placeholder: No real seed data retrieved yet in Phase 1 mock wallet
-        return null
-    }
-
-    fun clear() {
-        // Placeholder
-    }
-}`
-  }
-];
+function TxCard({ tx }: { tx: Tx }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="rounded-xl bg-green-50 p-3 text-green-700">
+          {tx.isSend ? <ArrowUpRight size={16} /> : <ArrowDownLeft size={16} />}
+        </div>
+        <div>
+          <div className="text-sm font-bold text-slate-800">{tx.isSend ? "Sent PEPEW" : "Received PEPEW"}</div>
+          <div className="font-mono text-[11px] text-slate-400">{shortText(tx.id, 8, 6)}</div>
+          <div className="text-[11px] text-slate-400">{tx.isPending ? "Pending" : formatDate(tx.timestamp)}</div>
+        </div>
+      </div>
+      <div className="text-right font-mono text-sm font-bold text-green-700">
+        {tx.isSend ? "-" : "+"}{formatAmount(tx.amount, 2)}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
-  const [selectedFile, setSelectedFile] = useState<CodeFile>(ANDROID_PROJECT_FILES[4]); // default to MainActivity.kt
-  const [copiedFile, setCopiedFile] = useState<boolean>(false);
+  const [screen, setScreen] = useState<Screen>("seed");
+  const [walletReady, setWalletReady] = useState(false);
+  const [words, setWords] = useState(WORDS);
+  const [checks, setChecks] = useState([false, false, false]);
+  const [balance, setBalance] = useState(0);
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [apiState, setApiState] = useState<ApiState>("CONNECTED");
+  const [apiMessage, setApiMessage] = useState("Read-only API mode. No signing or broadcast is enabled.");
+  const [height, setHeight] = useState<string>("-");
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(selectedFile.code);
-    setCopiedFile(true);
-    setTimeout(() => setCopiedFile(false), 2000);
+  const allChecked = useMemo(() => checks.every(Boolean), [checks]);
+
+  async function refreshApi() {
+    setApiState("CONNECTED");
+    setApiMessage("Loading read-only address summary from PEPEW Light API...");
+    try {
+      const [statusRes, summaryRes, historyRes] = await Promise.all([
+        fetch(`${API_BASE}/api/status`),
+        fetch(`${API_BASE}/api/wallet/address/${DEMO_ADDRESS}`),
+        fetch(`${API_BASE}/api/wallet/history/${DEMO_ADDRESS}?limit=50&offset=0`),
+      ]);
+
+      const status = await statusRes.json().catch(() => ({}));
+      const summary = await summaryRes.json().catch(() => ({}));
+      const history = await historyRes.json().catch(() => ({}));
+
+      const confirmed = summary?.balance?.confirmed_pepew ?? summary?.balance?.total_pepew ?? summary?.confirmed_pepew ?? summary?.balance ?? 0;
+      const unconfirmed = summary?.balance?.unconfirmed_pepew ?? summary?.unconfirmed_pepew ?? 0;
+      const parsedTxs = parseApiHistory(history?.history ?? history?.transactions ?? summary?.history ?? []);
+
+      setBalance(safeNumber(confirmed) + safeNumber(unconfirmed));
+      setTxs(parsedTxs);
+      setHeight(safeText(status?.height ?? status?.block_height ?? "-"));
+      setApiState(statusRes.ok && summaryRes.ok ? "READY" : "FAILED");
+      setApiMessage(parsedTxs.length > 0 ? "Loaded read-only address summary from ElectrumX." : "API ready. No amount-bearing history entries returned for this address.");
+    } catch (error) {
+      setApiState("FAILED");
+      setApiMessage(error instanceof Error ? error.message : "Unable to reach PEPEW Light API.");
+      setTxs([]);
+    }
+  }
+
+  useEffect(() => {
+    if (walletReady) refreshApi();
+  }, [walletReady]);
+
+  const enterWallet = () => {
+    setWalletReady(true);
+    setScreen("dashboard");
   };
 
-  return (
-    <div className="min-h-screen bg-[#0c1017] text-gray-200 font-sans flex flex-col">
-      {/* Top Banner / Header */}
-      <header className="border-b border-[#21262d] bg-[#161b22] px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="bg-emerald-500/10 p-2 rounded-xl border border-emerald-500/30 text-emerald-400">
-            <Shield className="w-6 h-6 animate-pulse" />
+  if (screen === "seed") {
+    return (
+      <main className="min-h-screen bg-[#f1f8e9] text-slate-800">
+        <Header title="🔑 GENERATE SEED PHRASE" />
+        <section className="p-5">
+          <p className="mb-4 text-sm text-slate-600">Write down these 12 words in order. This is mock-only prototype data.</p>
+          <div className="grid grid-cols-3 gap-2 rounded-2xl border border-green-200 bg-green-50 p-4">
+            {words.map((word, i) => (
+              <div key={`${word}-${i}`} className="rounded-md border border-green-200 bg-white px-3 py-2 font-mono text-xs">
+                <span className="text-slate-400">{i + 1}. </span>{word}
+              </div>
+            ))}
           </div>
-          <div>
-            <h1 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-              PEPEW Android Wallet
-              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono uppercase font-bold tracking-widest">
-                Phase 1 Mock
-              </span>
-            </h1>
-            <p className="text-xs text-gray-400">Kotlin + Jetpack Compose Android Studio Template</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <a
-            href="https://developer.android.com/studio"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 bg-[#21262d] hover:bg-[#30363d] text-xs font-semibold px-3 py-1.5 rounded-lg border border-[#30363d] transition text-white"
+          <button
+            onClick={() => setWords([...words].sort(() => Math.random() - 0.5))}
+            className="mt-4 w-full rounded-lg border border-green-200 bg-green-100 py-3 font-mono text-xs font-bold text-green-800"
           >
-            Get Android Studio <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-      </header>
-
-      {/* Main Grid Content */}
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 overflow-hidden">
-        
-        {/* Left Side: Setup Guide & File Tree */}
-        <section className="lg:col-span-5 flex flex-col gap-6 overflow-y-auto max-h-[calc(100vh-140px)] pr-2">
-          
-          {/* Architectural Notes Card */}
-          <div className="bg-[#161b22] border border-[#21262d] rounded-2xl p-5 shadow-sm">
-            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5 font-mono">
-              <Info className="w-3.5 h-3.5 text-emerald-400" /> Phase 1 Architecture
-            </h2>
-            <ul className="space-y-2 text-xs text-gray-400">
-              <li className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span><strong>No Hot Seeds:</strong> Wallet generating only offline shuffled 12-word lists. Security is priority.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span><strong>FakeWalletRepository:</strong> Simulated offline UTXO and state managers with standard Compose flows.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span><strong>VVM Architecture:</strong> Separated ViewModel layer (Send, History, ApiStatus) following clean architecture guidelines.</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Quick Setup Instructions */}
-          <div className="bg-[#161b22] border border-[#21262d] rounded-2xl p-5 shadow-sm">
-            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5 font-mono">
-              <Terminal className="w-3.5 h-3.5 text-sky-400" /> How to Run inside Android Studio
-            </h2>
-            <div className="space-y-3">
-              <div className="text-xs text-gray-400">
-                <p className="mb-2 font-medium text-white">1. Export files from Workspace Menu</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Go to AI Studio Settings &gt; Export to ZIP to download your full structured project with Gradle dependencies configured.
-                </p>
-              </div>
-              <div className="text-xs text-gray-400 border-t border-[#21262d] pt-3">
-                <p className="mb-2 font-medium text-white">2. Open in Android Studio</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Launch Android Studio (Ladybug or newer) &gt; Choose <strong>Open</strong> &gt; Select the exported project directory.
-                </p>
-              </div>
-              <div className="text-xs text-gray-400 border-t border-[#21262d] pt-3">
-                <p className="mb-2 font-medium text-white">3. Sync and Run</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Wait for Gradle Sync to complete. Click <strong>Run 'app'</strong> on your emulator or physical Android device.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Codebase File Explorer Tree */}
-          <div className="bg-[#161b22] border border-[#21262d] rounded-2xl p-5 flex-1 shadow-sm">
-            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-1.5 font-mono">
-              <Folder className="w-3.5 h-3.5 text-yellow-500" /> Source Explorer
-            </h2>
-            <div className="space-y-1 font-mono text-xs">
-              
-              {/* Root Project Level */}
-              <div className="flex items-center gap-1.5 text-gray-400 py-1 font-semibold">
-                <Folder className="w-4 h-4 text-gray-500" />
-                <span>/ (Root)</span>
-              </div>
-              
-              <div className="pl-4 space-y-1">
-                {ANDROID_PROJECT_FILES.filter(f => f.category === "gradle" && !f.name.includes("(App)")).map(file => (
-                  <button
-                    key={file.path}
-                    onClick={() => setSelectedFile(file)}
-                    className={`w-full text-left flex items-center justify-between py-1 px-2.5 rounded-lg transition ${
-                      selectedFile.path === file.path 
-                        ? "bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20" 
-                        : "hover:bg-[#21262d] text-gray-400"
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <FileCode className="w-3.5 h-3.5 text-blue-400" />
-                      {file.name}
-                    </span>
-                    <ChevronRight className="w-3 h-3 text-gray-600" />
-                  </button>
-                ))}
-              </div>
-
-              {/* App Level */}
-              <div className="flex items-center gap-1.5 text-gray-400 py-1 mt-3 font-semibold">
-                <Folder className="w-4 h-4 text-emerald-500/80" />
-                <span>/app</span>
-              </div>
-
-              <div className="pl-4 space-y-1">
-                {/* Gradle app */}
-                {ANDROID_PROJECT_FILES.filter(f => f.path === "app/build.gradle.kts").map(file => (
-                  <button
-                    key={file.path}
-                    onClick={() => setSelectedFile(file)}
-                    className={`w-full text-left flex items-center justify-between py-1 px-2.5 rounded-lg transition ${
-                      selectedFile.path === file.path 
-                        ? "bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20" 
-                        : "hover:bg-[#21262d] text-gray-400"
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <FileCode className="w-3.5 h-3.5 text-blue-400" />
-                      {file.name}
-                    </span>
-                    <ChevronRight className="w-3 h-3 text-gray-600" />
-                  </button>
-                ))}
-
-                {/* Android Manifest */}
-                {ANDROID_PROJECT_FILES.filter(f => f.category === "manifest").map(file => (
-                  <button
-                    key={file.path}
-                    onClick={() => setSelectedFile(file)}
-                    className={`w-full text-left flex items-center justify-between py-1 px-2.5 rounded-lg transition ${
-                      selectedFile.path === file.path 
-                        ? "bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20" 
-                        : "hover:bg-[#21262d] text-gray-400"
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <FileCode className="w-3.5 h-3.5 text-orange-400" />
-                      {file.name}
-                    </span>
-                    <ChevronRight className="w-3 h-3 text-gray-600" />
-                  </button>
-                ))}
-
-                {/* Java packages */}
-                <div className="flex items-center gap-1.5 text-gray-500 py-1 pl-2">
-                  <Folder className="w-3.5 h-3.5 text-emerald-500/50" />
-                  <span>net.pepepow.wallet</span>
-                </div>
-
-                <div className="pl-6 space-y-1">
-                  {ANDROID_PROJECT_FILES.filter(f => f.category.startsWith("kotlin_") || f.path.endsWith("MainActivity.kt")).map(file => (
-                    <button
-                      key={file.path}
-                      onClick={() => setSelectedFile(file)}
-                      className={`w-full text-left flex items-center justify-between py-1 px-2.5 rounded-lg transition ${
-                        selectedFile.path === file.path 
-                          ? "bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20" 
-                          : "hover:bg-[#21262d] text-gray-400"
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <FileCode className="w-3.5 h-3.5 text-emerald-400" />
-                        {file.name}
-                      </span>
-                      <ChevronRight className="w-3 h-3 text-gray-600" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-          </div>
+            SHUFFLE WORDS 🐸
+          </button>
+          <button
+            onClick={() => setScreen("confirm")}
+            className="mt-4 w-full rounded-lg bg-green-700 py-3 font-mono text-xs font-bold text-white"
+          >
+            NEXT
+          </button>
         </section>
-
-        {/* Right Side: Code Content Viewer */}
-        <section className="lg:col-span-7 flex flex-col bg-[#161b22] border border-[#21262d] rounded-2xl overflow-hidden max-h-[calc(100vh-140px)] shadow-lg">
-          {/* Viewer Toolbar */}
-          <div className="bg-[#0c1017] border-b border-[#21262d] px-5 py-3.5 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <FileCode className="w-4 h-4 text-emerald-400" />
-              <div>
-                <span className="text-xs font-semibold text-white block">{selectedFile.name}</span>
-                <span className="text-[10px] text-gray-500 font-mono block">{selectedFile.path}</span>
-              </div>
-            </div>
-            <button
-              onClick={handleCopyCode}
-              className="flex items-center gap-1.5 bg-[#21262d] hover:bg-[#30363d] text-xs font-semibold px-3 py-1.5 rounded-lg border border-[#30363d] text-white active:scale-95 transition"
-            >
-              {copiedFile ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-400">Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copy Code</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Viewer Text Area */}
-          <div className="flex-1 overflow-auto p-5 bg-[#0d1117] font-mono text-xs text-gray-300 leading-relaxed selection:bg-emerald-500/20">
-            <pre className="whitespace-pre overflow-x-auto select-text font-mono text-[11px]">
-              {selectedFile.code}
-            </pre>
-          </div>
-        </section>
-
       </main>
+    );
+  }
 
-      {/* Footer */}
-      <footer className="border-t border-[#21262d] bg-[#161b22] px-6 py-3 flex flex-col sm:flex-row items-center justify-between text-[11px] text-gray-500">
-        <div>PEPEW Kotlin Android Wallet template ready. Fully decoupled from React framework dependencies.</div>
-        <div className="font-mono mt-1 sm:mt-0 text-gray-500">net.pepepow.wallet • Phase 1 Template</div>
-      </footer>
-    </div>
+  if (screen === "confirm") {
+    return (
+      <main className="min-h-screen bg-[#f1f8e9] text-slate-800">
+        <Header title="CONFIRM BACKUP" onBack={() => setScreen("seed")} />
+        <section className="space-y-3 p-5">
+          {[
+            "I understand this is a Phase 2 prototype.",
+            "I understand no real mnemonic/private key is implemented.",
+            "I understand sending is disabled until Phase 3.",
+          ].map((label, i) => (
+            <label key={label} className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
+              <input
+                type="checkbox"
+                checked={checks[i]}
+                onChange={() => setChecks(prev => prev.map((v, idx) => idx === i ? !v : v))}
+              />
+              <span className="text-sm text-slate-700">{label}</span>
+            </label>
+          ))}
+          <button
+            disabled={!allChecked}
+            onClick={enterWallet}
+            className="w-full rounded-lg bg-green-700 py-3 font-mono text-xs font-bold text-white disabled:bg-slate-300"
+          >
+            ENTER WALLET
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  if (screen === "receive") {
+    return (
+      <main className="min-h-screen bg-[#f1f8e9] text-slate-800">
+        <Header title="Receive PEPEW" onBack={() => setScreen("dashboard")} />
+        <section className="flex flex-col items-center gap-5 p-5 pt-20">
+          <div className="rounded-3xl bg-white p-5 shadow-sm"><QrCode size={120} /></div>
+          <div className="text-center text-xs font-bold uppercase tracking-widest text-slate-400">Your public address</div>
+          <div className="break-all rounded-xl border border-green-200 bg-white p-4 text-center font-mono text-sm">{DEMO_ADDRESS}</div>
+          <button className="fixed bottom-5 left-4 right-4 rounded-xl bg-green-700 py-4 font-mono text-xs font-bold text-white"><Copy className="mr-2 inline" size={14} />COPY ADDRESS</button>
+        </section>
+      </main>
+    );
+  }
+
+  if (screen === "history") {
+    return (
+      <main className="min-h-screen bg-[#f1f8e9] text-slate-800">
+        <Header title="Transaction History" onBack={() => setScreen("dashboard")} />
+        <section className="space-y-3 p-4">
+          {txs.length === 0 ? (
+            <div className="rounded-2xl border border-green-200 bg-white p-6 text-center text-sm text-slate-500">No amount-bearing history entries available.</div>
+          ) : txs.map(tx => <TxCard key={tx.id} tx={tx} />)}
+        </section>
+      </main>
+    );
+  }
+
+  if (screen === "api") {
+    return (
+      <main className="min-h-screen bg-[#f1f8e9] text-slate-800">
+        <Header title="PEPEW Light API Status" onBack={() => setScreen("dashboard")} />
+        <section className="space-y-4 p-5">
+          <div className="rounded-2xl bg-white p-5 shadow-sm">
+            <div className="flex justify-between font-mono text-xs"><span>STATUS:</span><span className="text-green-700">{apiState}</span></div>
+            <div className="mt-4 flex justify-between font-mono text-xs"><span>SERVER ENDPOINT:</span><span>{API_BASE.replace("https://", "")}</span></div>
+            <div className="mt-4 flex justify-between font-mono text-xs"><span>BLOCK HEIGHT:</span><span className="text-green-700">{height}</span></div>
+          </div>
+          <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-xs text-green-800">{apiMessage}</div>
+          <button onClick={refreshApi} className="rounded-xl bg-white px-4 py-3 font-mono text-xs font-bold text-green-700 shadow-sm"><RefreshCcw className="mr-2 inline" size={14} />REFRESH STATUS</button>
+        </section>
+      </main>
+    );
+  }
+
+  if (screen === "settings") {
+    return (
+      <main className="min-h-screen bg-[#f1f8e9] text-slate-800">
+        <Header title="Settings" onBack={() => setScreen("dashboard")} />
+        <section className="space-y-4 p-5">
+          <div className="rounded-2xl bg-white p-5 text-sm shadow-sm">
+            <div className="flex justify-between"><span>App Name:</span><span>PEPEW Wallet</span></div>
+            <div className="mt-3 flex justify-between"><span>Version:</span><span>1.0.0 Phase 2</span></div>
+            <div className="mt-3 flex justify-between"><span>API Connection:</span><span>{API_BASE.replace("https://", "")}</span></div>
+          </div>
+          <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-xs text-green-800">This prototype is read-only. Real mnemonic, key derivation, signing, UTXO selection, and broadcast are absent.</div>
+          <button onClick={() => { setWalletReady(false); setScreen("seed"); }} className="fixed bottom-5 left-4 right-4 rounded-xl bg-red-600 py-4 font-mono text-xs font-bold text-white">RESET WALLET DATA</button>
+        </section>
+      </main>
+    );
+  }
+
+  if (screen === "send") {
+    return (
+      <main className="min-h-screen bg-[#f1f8e9] text-slate-800">
+        <Header title="Send PEPEW" onBack={() => setScreen("dashboard")} />
+        <section className="p-5">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            Send is disabled in Phase 2. Real signing and broadcast will be implemented later after local key handling is reviewed.
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  const recent = txs.length > 0 ? txs.slice(0, 3) : mockTxs();
+
+  return (
+    <main className="min-h-screen bg-[#f1f8e9] p-4 text-slate-800">
+      <div className="mb-4 flex items-center justify-between py-2">
+        <div className="font-mono text-sm font-bold text-green-800">🐸 PEPEW</div>
+        <button onClick={() => setScreen("api")} className="rounded-full border border-green-200 bg-green-50 px-4 py-1 font-mono text-xs font-bold text-green-700">● {apiState}</button>
+      </div>
+
+      <section className="rounded-3xl bg-green-700 p-6 text-white shadow-sm">
+        <div className="text-xs font-bold uppercase tracking-widest text-green-100">Balance</div>
+        <div className="mt-3 font-mono text-2xl font-bold">{formatAmount(balance)} <span className="text-xs">PEPEW</span></div>
+        <div className="mt-5 text-[11px] font-bold text-green-100">Demo Public Address: <span className="ml-2 font-mono underline">{shortText(DEMO_ADDRESS, 8, 6)}</span></div>
+      </section>
+
+      <section className="my-5 grid grid-cols-4 gap-3">
+        {[
+          ["Send", Send, "send"],
+          ["Receive", ArrowDownLeft, "receive"],
+          ["History", History, "history"],
+          ["Settings", Settings, "settings"],
+        ].map(([label, Icon, target]) => (
+          <button key={String(label)} onClick={() => setScreen(target as Screen)} className="rounded-2xl bg-white p-4 text-center shadow-sm">
+            {React.createElement(Icon as typeof Send, { size: 18, className: "mx-auto mb-3 text-green-700" })}
+            <div className="text-xs font-bold text-slate-700">{String(label)}</div>
+          </button>
+        ))}
+      </section>
+
+      <section className="rounded-2xl bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="font-mono text-xs font-bold uppercase tracking-widest text-slate-400">Recent Activity</div>
+          <button onClick={refreshApi}><RefreshCcw size={14} className="text-slate-400" /></button>
+        </div>
+        <div className="space-y-3">
+          {recent.map(tx => <TxCard key={tx.id} tx={tx} />)}
+        </div>
+      </section>
+    </main>
   );
 }
