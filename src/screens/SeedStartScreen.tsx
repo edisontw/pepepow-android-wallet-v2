@@ -1,6 +1,6 @@
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 
-const pepewLogoUrl = new URL("../../app/src/main/res/drawable/pepew_logo.png", import.meta.url).href;
+const pepewLogoUrl = new URL("../../app/public/favicon.svg", import.meta.url).href;
 
 type SeedStartScreenProps = {
   words: string[];
