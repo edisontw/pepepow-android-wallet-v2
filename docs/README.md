@@ -7,10 +7,7 @@ Documentation for PEPEW Wallet is collected in this folder.
 - [`pepepow-parameters.md`](./pepepow-parameters.md) — PEPEPOW network, address, WIF, and HD wallet derivation parameters.
 - [`android-icon-setup.md`](./android-icon-setup.md) — Android launcher icon setup notes.
 - [`release-polish-status.md`](./release-polish-status.md) — UI polish status and manual verification checklist.
-
-## Development history
-
-Phase planning and scaffolding documents may remain available for development traceability, but public-facing UI should avoid phase/test/prototype wording.
+- [`development-history.md`](./development-history.md) — short record of completed development milestones.
 
 ## Current wallet rules
 
@@ -30,3 +27,7 @@ coinType = 5
 packetMagic = 0xbf0c6bbd
 port = 8833
 ```
+
+## Documentation policy
+
+Keep current usage and parameter documents in `docs/`. Temporary planning notes should be summarized into `development-history.md` when they are no longer needed.
