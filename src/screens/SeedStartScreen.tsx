@@ -1,5 +1,7 @@
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 
+const pepewLogoUrl = new URL("../../app/src/main/res/drawable/pepew_logo.png", import.meta.url).href;
+
 type SeedStartScreenProps = {
   words: string[];
   error?: string;
@@ -12,8 +14,13 @@ export function SeedStartScreen(props: SeedStartScreenProps) {
     <div className="min-h-screen bg-[#eef7e9] p-4 font-sans text-slate-900">
       <div className="mx-auto max-w-md space-y-4">
         <div className="rounded-3xl bg-white p-6 shadow-sm">
-          <div className="mb-2 font-mono text-sm font-bold tracking-[0.25em] text-green-800">PEPEW WALLET</div>
-          <h1 className="text-2xl font-black text-slate-900">Create or restore your wallet</h1>
+          <div className="mb-4 flex items-center gap-4">
+            <img src={pepewLogoUrl} alt="PEPEW Wallet logo" className="h-14 w-14 rounded-2xl object-cover shadow-sm" />
+            <div>
+              <div className="mb-2 font-mono text-sm font-bold tracking-[0.25em] text-green-800">PEPEW WALLET</div>
+              <h1 className="text-2xl font-black text-slate-900">Create or restore your wallet</h1>
+            </div>
+          </div>
           <p className="mt-2 text-sm leading-6 text-slate-500">
             A non-custodial PEPEW wallet. Recovery words and signing stay on this device.
           </p>
@@ -27,17 +34,6 @@ export function SeedStartScreen(props: SeedStartScreenProps) {
         <div className="rounded-3xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
           <div className="mb-2 flex items-center gap-2 font-bold"><ShieldCheck size={16} /> Non-custodial</div>
           <p>PEPEW Light API is used for balance, history, UTXO lookup, and transaction broadcast. Private keys are not sent to the API.</p>
-        </div>
-
-        <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-400">RECOVERY WORDS</div>
-          <div className="grid grid-cols-3 gap-2">
-            {props.words.map((word, index) => (
-              <div key={`${word}-${index}`} className="rounded-xl bg-green-50 p-2 font-mono text-xs">
-                <span className="text-slate-400">{index + 1}.</span> {word}
-              </div>
-            ))}
-          </div>
         </div>
 
         {props.error && <div className="rounded-2xl bg-red-50 p-3 text-sm text-red-700">{props.error}</div>}
