@@ -16,7 +16,7 @@ export function validatePrototypeRestorePhrase(input: string): RestoreValidation
     return {
       ok: false,
       words,
-      error: "Enter your 12-word test phrase.",
+      error: "Enter your 12-word recovery phrase.",
     };
   }
 
