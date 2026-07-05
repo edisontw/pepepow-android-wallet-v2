@@ -33,8 +33,8 @@ export default function AppPhase5Shell() {
     return (
       <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center space-y-4 bg-[#eef7e9] p-4 text-slate-900">
         <ResetConfirmCard
-          title="Reset preview wallet"
-          description="This clears the Phase 5 shell session state for the browser preview. Type RESET to continue."
+          title="Reset wallet"
+          description="This clears the local wallet session. Type RESET to continue."
           onConfirm={confirmReset}
           onCancel={() => dispatchSecurity({ type: "CANCEL_RESET" })}
         />
@@ -45,7 +45,7 @@ export default function AppPhase5Shell() {
   if (!isWalletUsable(security)) {
     return (
       <LockScreen
-        message={security.message ?? "Phase 5 preview shell locked the wallet UI."}
+        message={security.message ?? "Wallet locked."}
         onUnlock={(pin) => {
           if (pin.trim().length >= 4) dispatchSecurity({ type: "UNLOCK" });
         }}
@@ -58,9 +58,6 @@ export default function AppPhase5Shell() {
   return (
     <div>
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
-        <div className="rounded-2xl bg-slate-900 px-3 py-2 font-mono text-[10px] font-bold tracking-widest text-white shadow-lg">
-          PHASE 5 SECURITY SHELL
-        </div>
         <button
           onClick={lockPreview}
           className="flex items-center gap-2 rounded-full bg-green-700 px-4 py-3 font-mono text-xs font-bold text-white shadow-lg"
