@@ -5,7 +5,7 @@ Experimental PEPEPOW wallet preview for rapid Google AI Studio / Vite testing an
 - App name: `PEPEW Wallet`
 - Android package target: `net.pepepow.wallet`
 - Public API: `https://light.pepepow.net/`
-- Current phase: **Phase 4A restore preview scaffold**
+- Current phase: **Phase 5 security scaffold**
 
 ## Security warning
 
@@ -14,7 +14,7 @@ This repository is still experimental.
 - Use small test funds only.
 - Current preview derivation is prototype logic, not reviewed production wallet-core.
 - No production BIP39/BIP32/BIP44 compatibility is claimed yet.
-- No encrypted storage, PIN, biometric lock, or auto-lock is implemented yet.
+- Phase 5 is starting the security scaffold, but encrypted storage, PIN, biometric lock, and auto-lock are not audited production security yet.
 - Recovery words and signing logic must stay local.
 - The public API should receive only addresses, UTXO/history requests, and signed raw transactions.
 
@@ -54,11 +54,11 @@ Key documents:
 - `PHASE3_2_RELIABILITY.md`
 - `PHASE3_3_STRUCTURE.md`
 
-### Phase 4A — Restore preview
+### Phase 4 — Restore preview
 
-In progress.
+Completed as a preview milestone.
 
-Current scaffold:
+Key documents and scaffold:
 
 - `PHASE4_RESTORE_PLAN.md`
 - `PHASE4A_UI_STATUS.md`
@@ -69,7 +69,26 @@ Current scaffold:
 - `src/screens/RestoreScreen.tsx`
 - `src/screens/SeedStartScreen.tsx`
 
-The restore screen components are ready, but final `App.tsx` wiring is still pending.
+Keep restore prototype-only until wallet-core derivation is reviewed.
+
+### Phase 5 — Security scaffold
+
+Started.
+
+Key documents:
+
+- `PHASE5_SECURITY_PLAN.md`
+- `AGENT_PHASE5_SECURITY_SCAFFOLD.md`
+
+Phase 5 priority:
+
+1. Add security domain types and lock-state reducer.
+2. Add placeholder security repository/store.
+3. Add PIN/biometric UI scaffold without claiming production security.
+4. Add auto-lock timer wiring.
+5. Gate seed reveal and wallet reset behind explicit confirmation.
+6. Add tests for lock state transitions.
+7. Document remaining native Android Keystore work.
 
 ## Web preview development
 
@@ -98,8 +117,8 @@ npm run build
 
 ## Suggested next work
 
-1. Wire `SeedStartScreen` and `RestoreScreen` into `App.tsx`.
-2. Continue splitting `App.tsx` into smaller screen components.
-3. Keep restore prototype-only until wallet-core derivation is reviewed.
-4. Add production restore design with receive/change chains, gap limit, history scan, and UTXO rebuild.
-5. Add encrypted storage, PIN/biometric lock, and auto-lock in Phase 5.
+1. Run the Phase 5 security scaffold agent prompt.
+2. Keep all mnemonic, seed, private-key, and signing material local.
+3. Do not claim production wallet security until native encrypted storage and wallet-core logic are reviewed.
+4. Continue splitting `App.tsx` into smaller screen components.
+5. Add production restore design with receive/change chains, gap limit, history scan, and UTXO rebuild.
