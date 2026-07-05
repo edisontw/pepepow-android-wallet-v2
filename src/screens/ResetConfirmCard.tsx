@@ -9,8 +9,8 @@ type ResetConfirmCardProps = {
 };
 
 export function ResetConfirmCard({
-  title = "Reset preview wallet",
-  description = "This clears the local browser-preview wallet state. Type RESET to continue.",
+  title = "Reset wallet",
+  description = "This clears the local wallet session. Type RESET to continue.",
   onConfirm,
   onCancel,
 }: ResetConfirmCardProps) {
