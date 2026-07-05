@@ -12,8 +12,13 @@ export function SeedStartScreen(props: SeedStartScreenProps) {
     <div className="min-h-screen bg-[#eef7e9] p-4 font-sans text-slate-900">
       <div className="mx-auto max-w-md space-y-4">
         <div className="rounded-3xl bg-white p-6 shadow-sm">
-          <div className="mb-2 font-mono text-sm font-bold tracking-[0.25em] text-green-800">🐸 PEPEW WALLET</div>
-          <h1 className="text-2xl font-black text-slate-900">Phase 5 Security Preview</h1>
+          <div className="mb-4 flex items-center gap-4">
+            <img src="/logo.svg" alt="PEPEW Wallet logo" className="h-16 w-16 rounded-2xl shadow-sm" />
+            <div>
+              <div className="mb-2 font-mono text-sm font-bold tracking-[0.25em] text-green-800">PEPEW WALLET</div>
+              <h1 className="text-2xl font-black text-slate-900">Phase 5 Security Preview</h1>
+            </div>
+          </div>
           <p className="mt-2 text-sm leading-6 text-slate-500">
             Browser-preview wallet for small test funds only. Recovery and signing logic stays local, but this is not production wallet code.
           </p>
