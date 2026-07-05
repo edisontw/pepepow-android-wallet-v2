@@ -1,124 +1,60 @@
 # Phase 3.2 Wallet Reliability Polish
 
-Status: **Planned / next implementation pass**
+Status: **In progress / partially implemented**
 
-This document records the next wallet reliability changes after live small-fund tests confirmed receive, balance, UTXO lookup, local signing, broadcast, and verbose backend history.
+This document records the wallet reliability changes after live small-fund tests confirmed receive, balance, UTXO lookup, local signing, broadcast, and verbose backend history.
 
-## Goals
+## Completed
 
-Keep the wallet experimental, but make the current send/history flow clearer and less server-heavy.
+- Normal history refresh no longer needs repeated transaction-detail API calls.
+- History refresh now relies on backend wallet-friendly history rows.
+- Send flow now shows a Review before broadcast card.
+- Recipient and amount are locked after prepare until the user clears the prepared transaction.
+- A submitted transaction cannot be submitted again from the same prepared payload.
+- Post-broadcast optimistic update, delayed refresh, and manual refresh cooldown remain in place.
 
-## Backend dependency
+## New helper modules
 
-The backend now returns wallet-friendly history rows by default:
+Added reusable modules for the next cleanup pass:
 
 ```text
-GET /api/wallet/history/{address}?limit=50&offset=0
+src/types/wallet.ts
+src/config/appConstants.ts
+src/utils/format.ts
+src/api/walletApi.ts
 ```
 
-Rows include:
+`App.tsx` still owns the UI flow for now. These modules make later incremental migration safer and reduce future single-file update risk.
+
+## Remaining cleanup
+
+Move UI-only pieces into components:
 
 ```text
-direction
-amount_atoms
-amount_pepew
-address_delta_atoms
-address_delta_pepew
-received_atoms
-spent_atoms
-timestamp
-confirmations
+src/components/Header.tsx
+src/components/TxCard.tsx
+src/screens/SeedScreen.tsx
+src/screens/DashboardScreen.tsx
+src/screens/ReceiveScreen.tsx
+src/screens/SendScreen.tsx
+src/screens/HistoryScreen.tsx
+src/screens/SettingsScreen.tsx
 ```
 
-Therefore the frontend should not bulk-call `/api/wallet/tx/{txid}` during normal history refresh.
-
-## Frontend changes to apply
-
-### 1. Remove normal tx-detail fallback calls
-
-Current frontend still has a fallback path that can call:
+Move API parsing fully into:
 
 ```text
-/api/wallet/tx/{txid}
-```
-
-for each history row. That was needed before verbose backend history existed. It should now be removed from normal refresh flow.
-
-Keep fallback only behind an explicit condition:
-
-```text
-if no history row has address_delta_pepew/address_delta_atoms
-```
-
-or remove it entirely for the AI Studio prototype.
-
-### 2. Explicit verbose history URL
-
-Use:
-
-```text
-/api/wallet/history/{address}?limit=50&offset=0&detail_limit=10
-```
-
-`verbose=true` is now backend default, but keeping `detail_limit=10` documents intent and limits backend work.
-
-For forced refresh:
-
-```text
-/api/wallet/history/{address}?limit=50&offset=0&detail_limit=10&fresh=1&t={timestamp}
-```
-
-### 3. Review block before broadcast
-
-After `PREPARE & SIGN TRANSACTION`, show a clear review card:
-
-```text
-Review before broadcast
-From: active address
-To: recipient
-Amount: X PEPEW
-Fee: 0.001 PEPEW
-Total spent: X + fee
-Input total: current UTXO total
-Estimated change: input total - amount - fee
-```
-
-Keep recipient and amount locked while signed raw tx exists.
-
-### 4. Duplicate broadcast prevention
-
-Keep current disabled state for broadcast while broadcasting, and also disable broadcast after success until the user edits details or starts a new transaction.
-
-### 5. Post-broadcast state
-
-Current behavior is good:
-
-- optimistic balance update
-- local pending tx
-- delayed auto refresh
-- manual refresh with cooldown
-
-Keep refresh intervals conservative:
-
-```text
-12 seconds
-45 seconds
-```
-
-Manual refresh cooldown:
-
-```text
-15 seconds
+src/api/walletApi.ts
 ```
 
 ## Acceptance criteria
 
-- History refresh no longer makes N tx-detail calls when backend verbose fields are present.
-- Dashboard history still shows correct sent/received amounts.
-- Send page shows review details before broadcast.
-- Prepare button remains hidden after prepare until user clears signed tx.
-- Broadcast button cannot be repeatedly pressed for the same signed tx.
-- Balance remains correct after broadcast and after API refresh.
+- History refresh no longer makes repeated transaction-detail calls during normal refresh. ✅
+- Dashboard history still shows correct sent/received amounts. ✅
+- Send page shows review details before broadcast. ✅
+- Prepare button remains hidden after prepare until user clears prepared transaction. ✅
+- Broadcast button cannot be repeatedly pressed for the same prepared transaction. ✅
+- Balance remains correct after broadcast and after API refresh. ✅
 
 ## Notes
 
