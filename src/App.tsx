@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ArrowDownLeft,
   ArrowLeft,
   ArrowUpRight,
@@ -26,8 +25,11 @@ import {
 import type { UTXO } from "./wallet/walletUtils";
 import { SeedStartScreen } from "./screens/SeedStartScreen";
 import { RestoreScreen } from "./screens/RestoreScreen";
+import { RecentRecipientsCard } from "./screens/RecentRecipientsCard";
 import { screenTitle } from "./screens/screenTitle";
 import type { Screen } from "./types/wallet";
+import { clearRecentRecipients, loadRecentRecipients, saveRecentRecipient } from "./wallet/recentRecipients";
+import type { RecentRecipient } from "./wallet/recentRecipients";
 
 type ApiState = "CONNECTED" | "READY" | "FAILED";
 
@@ -231,8 +233,6 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("seed");
   const [walletReady, setWalletReady] = useState(false);
   const [words, setWords] = useState(WORDS);
-  const [inputSeedMode, setInputSeedMode] = useState(false);
-  const [customSeedInput, setCustomSeedInput] = useState("");
   const [balance, setBalance] = useState(0);
   const [txs, setTxs] = useState<Tx[]>([]);
   const [localTxs, setLocalTxs] = useState<Tx[]>([]);
@@ -254,6 +254,7 @@ export default function App() {
   const [copiedText, setCopiedText] = useState("");
   const [lastRefreshAt, setLastRefreshAt] = useState(0);
   const [refreshCooldownSeconds, setRefreshCooldownSeconds] = useState(0);
+  const [recentRecipients, setRecentRecipients] = useState<RecentRecipient[]>(() => loadRecentRecipients());
 
   const localWallet = useMemo(() => {
     const mnemonic = words.join(" ").trim();
@@ -353,30 +354,24 @@ export default function App() {
     setScreen("send");
   }
 
-  function importSeed() {
-    const parts = customSeedInput.trim().split(/\s+/).filter(Boolean);
-    if (parts.length !== 12) {
-      setSendError("Seed phrase must be exactly 12 words.");
-      return;
-    }
-    setWords(parts);
-    setInputSeedMode(false);
-    setCustomSeedInput("");
-    setSendError("");
-    setLocalTxs([]);
-    setLastRefreshAt(0);
-  }
-
   function restoreTestWallet(restoredWords: string[]) {
     setWords(restoredWords);
-    setInputSeedMode(false);
-    setCustomSeedInput("");
     setSendError("");
     setLocalTxs([]);
     setBroadcastResult(null);
     setLastRefreshAt(0);
     setWalletReady(true);
     setScreen("dashboard");
+  }
+
+  function selectRecentRecipient(address: string) {
+    setRecipient(address);
+    setBroadcastResult(null);
+  }
+
+  function clearRecipientHistory() {
+    clearRecentRecipients();
+    setRecentRecipients([]);
   }
 
   async function prepareLocalTransaction() {
@@ -481,6 +476,7 @@ export default function App() {
       setBalance(prev => Math.max(0, prev - amount - fee));
       setUtxoTotal(prev => Math.max(0, prev - amount - fee));
       setUtxoCount(0);
+      setRecentRecipients(saveRecentRecipient(recipient.trim()));
       setBroadcastResult({ success: true, txid });
       setSignedTxHex("");
       setSendReview(null);
@@ -566,6 +562,7 @@ export default function App() {
 
       {screen === "send" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
+          <RecentRecipientsCard recipients={recentRecipients} onSelect={selectRecentRecipient} onClear={clearRecipientHistory} />
           <section className="rounded-3xl bg-white p-5 shadow-sm">
             <label className="font-mono text-xs font-bold tracking-widest text-slate-500">RECIPIENT ADDRESS</label>
             <input value={recipient} disabled={!!signedTxHex || isBroadcasting} onChange={e => { setRecipient(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-xs outline-none focus:border-green-500" placeholder="Address starting with P" />
