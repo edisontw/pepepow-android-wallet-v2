@@ -1,15 +1,15 @@
 # PEPEW Wallet (Android Studio Kotlin Project Template)
 
-A native Kotlin + Jetpack Compose Android project for the **PEPEW Wallet** Phase 1 prototype.
+A native Kotlin + Jetpack Compose Android project for the **PEPEW Wallet** prototype.
 
 * **Package ID:** `net.pepepow.wallet`
-* **Current Status:** **Phase 1 Mock Wallet Prototype**
+* **Current Status:** **Phase 2 Read-only API Baseline**
 
 ---
 
 ## ⚠️ Important Security Warning
 
-**This version is for Phase 1 prototyping and uses mock data only.**
+**This version is still a prototype. Phase 2 adds read-only PEPEW Light API lookups only.**
 
 * It **does not** implement real 12-word seed/mnemonic generation.
 * It **does not** store real mnemonic data.
@@ -18,8 +18,8 @@ A native Kotlin + Jetpack Compose Android project for the **PEPEW Wallet** Phase
 * It **does not** implement transaction signing.
 * It **does not** implement UTXO selection.
 * It **does not** implement real transaction broadcasting.
-* It **does not** make real PEPEW Light API calls yet.
-* No private keys or real cryptocurrency balances are handled or transmitted.
+* It only calls public read endpoints for health/status/address balance/history.
+* No private keys or real wallet secrets are handled or transmitted.
 
 ---
 
@@ -30,7 +30,7 @@ A native Kotlin + Jetpack Compose Android project for the **PEPEW Wallet** Phase
 * **Material 3 UI Elements**
 * **Navigation Compose**
 * **ViewModel Layer**
-* **Repository Pattern** with `FakeWalletRepository` as the only active data source
+* **Repository Pattern** with both `FakeWalletRepository` and active `ReadOnlyApiWalletRepository`
 
 ---
 
@@ -40,39 +40,41 @@ The Android source code resides inside `app/src/main/java/net/pepepow/wallet/`:
 
 * **`ui/`**: Compose screens and app theme.
 * **`viewmodel/`**: `WalletViewModel`, `SendViewModel`, `HistoryViewModel`, and `ApiStatusViewModel`.
-* **`data/`**: `WalletRepository`, active `FakeWalletRepository`, and placeholder `PepewApiClient`.
+* **`data/`**: `WalletRepository`, `FakeWalletRepository`, `ReadOnlyApiWalletRepository`, and `PepewApiClient`.
 * **`domain/`**: Pure helper logic.
-* **`security/`**: Placeholder `EncryptedStorage`. It does not store real seed data in Phase 1.
+* **`security/`**: Placeholder `EncryptedStorage`. It does not store real seed data in this prototype.
 * **`navigation/`**: Route definitions and navigation graph.
 
 ---
 
-## Phase 1 Mock Specifications
+## Phase 2 Read-only API Specifications
 
-* **Active Wallet Address:** `PExamplePepepowAddress123456789`
-* **Mock Balance:** `12345.6789 PEPEW`
-* **Reserved Endpoint shown in UI:** `https://light.pepepow.net/`
-* **Send behavior:** fake local pending transaction only
-* **API status behavior:** simulated local state only
+* **Endpoint:** `https://light.pepepow.net/`
+* **Active runtime data source:** `ReadOnlyApiWalletRepository`
+* **Demo read-only address:** `PRfbEeHAKKbz6Voz85WJudrJwTA3ZbHunb`
+* **Balance behavior:** read-only API lookup by address
+* **History behavior:** read-only API lookup by address
+* **API status behavior:** real `GET /api/health` and `GET /api/status`
+* **Send behavior:** disabled in active read-only API mode until Phase 3
 
 ---
 
 ## Current Active Data Source
 
-`MainActivity` directly creates:
+`MainActivity` currently creates:
 
 ```kotlin
-val repository = FakeWalletRepository()
+val repository = ReadOnlyApiWalletRepository(PepewApiClient())
 ```
 
-This is intentional for Phase 1. Do not replace it with a real API repository until Phase 2.
+`FakeWalletRepository` remains in the codebase for mock mode, previews, fallback testing, and Phase 1 comparison.
 
 ---
 
 ## Development Roadmap
 
-1. **Phase 1 (Current):** Mock wallet UI, navigation, ViewModels, fake repository state, fake send, and placeholder API/security classes.
-2. **Phase 2:** Read-only API integration for balance/history/status only. No seed, key, signing, UTXO, or broadcast logic.
+1. **Phase 1:** Mock wallet UI, navigation, ViewModels, fake repository state, fake send, and placeholder API/security classes.
+2. **Phase 2 (Current):** Read-only API integration for balance/history/status only. No seed, key, signing, UTXO, or broadcast logic.
 3. **Phase 3:** Local transaction preparation/signing design. Private keys must stay local.
 4. **Phase 4:** Restore wallet flow and address scanning.
 5. **Phase 5:** Keystore/encrypted storage, PIN/biometric, auto-lock, audit, and release hardening.
@@ -81,6 +83,7 @@ See also:
 
 * [`PHASE1_STATUS.md`](PHASE1_STATUS.md)
 * [`TODO_PHASE2_API.md`](TODO_PHASE2_API.md)
+* [`PHASE2_STATUS.md`](PHASE2_STATUS.md)
 
 ---
 
