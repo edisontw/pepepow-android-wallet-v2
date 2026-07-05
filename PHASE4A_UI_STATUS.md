@@ -1,14 +1,16 @@
 # Phase 4A Restore UI Status
 
-Status: **UI component scaffold added**
+Status: **Screen components ready / App wiring pending**
 
 ## Added
 
 ```text
 src/screens/RestoreScreen.tsx
+src/screens/SeedStartScreen.tsx
+src/types/wallet.ts restore screen type
 ```
 
-The new component provides:
+The restore component provides:
 
 - 12-word restore input
 - local phrase validation through `restoreValidation.ts`
@@ -16,22 +18,25 @@ The new component provides:
 - experimental restore warning
 - restore and cancel callbacks
 
+The seed start component provides:
+
+- demo words display
+- create/open test wallet button
+- restore test wallet button
+- warning copy for test-only use
+
 ## Current integration state
 
-The component is not yet wired into `App.tsx`. This is intentional because `App.tsx` is still a large file and full-file updates have occasionally been blocked by connector safety checks.
+The building blocks are ready, but `App.tsx` has not yet been wired to them. Full-file updates to `App.tsx` have occasionally been blocked by connector safety checks, so this phase is proceeding by small files first.
 
 ## Next integration step
 
-Add a new screen state:
+Wire:
 
 ```text
-restore
-```
-
-Then wire:
-
-```text
-Seed screen -> RestoreScreen -> setWords(restoredWords) -> dashboard -> refresh API
+screen === "seed" -> SeedStartScreen
+screen === "restore" -> RestoreScreen
+RestoreScreen.onRestore(words) -> setWords(words), setWalletReady(true), setScreen("dashboard"), reset refresh cooldown
 ```
 
 ## Acceptance criteria for Phase 4A
