@@ -1,4 +1,4 @@
-import { useCallback, useReducer } from "react";
+import { useCallback, useReducer, useState } from "react";
 import { Lock } from "lucide-react";
 import App from "./App";
 import { LockScreen } from "./screens/LockScreen";
@@ -11,10 +11,17 @@ export default function AppPhase5Shell() {
     ...initialSecuritySession,
     state: "WALLET_UNLOCKED",
   });
+  const [resetText, setResetText] = useState("");
 
   const lockPreview = useCallback(() => {
     previewSecurityStore.lock();
     dispatchSecurity({ type: "LOCK" });
+  }, []);
+
+  const confirmReset = useCallback(() => {
+    previewSecurityStore.clearWallet();
+    setResetText("");
+    dispatchSecurity({ type: "CONFIRM_RESET" });
   }, []);
 
   useAutoLock({
@@ -22,6 +29,38 @@ export default function AppPhase5Shell() {
     lastActiveAt: security.lastActiveAt,
     onLock: lockPreview,
   });
+
+  if (security.state === "RESET_PENDING") {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center space-y-4 bg-[#eef7e9] p-4 text-slate-900">
+        <section className="rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
+          <div className="mb-2 font-mono text-xs font-bold tracking-widest text-red-700">RESET PREVIEW WALLET</div>
+          <p className="text-sm leading-6 text-slate-600">
+            This clears the Phase 5 shell session state for the browser preview. Type RESET to continue.
+          </p>
+          <input
+            value={resetText}
+            onChange={(event) => setResetText(event.target.value)}
+            className="mt-4 w-full rounded-xl border border-red-100 p-3 font-mono text-sm outline-none focus:border-red-500"
+            placeholder="RESET"
+          />
+          <button
+            disabled={resetText !== "RESET"}
+            onClick={confirmReset}
+            className="mt-4 w-full rounded-2xl bg-red-600 py-4 font-mono text-xs font-bold tracking-widest text-white disabled:bg-slate-300"
+          >
+            CONFIRM RESET
+          </button>
+          <button
+            onClick={() => dispatchSecurity({ type: "CANCEL_RESET" })}
+            className="mt-3 w-full rounded-2xl bg-white py-3 font-mono text-xs font-bold tracking-widest text-green-700 shadow-sm"
+          >
+            CANCEL
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   if (!isWalletUsable(security)) {
     return (
