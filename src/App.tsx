@@ -35,6 +35,7 @@ type Tx = {
   timestamp: number;
   isSend: boolean;
   isPending?: boolean;
+  isUnknownAmount?: boolean;
 };
 
 type BroadcastResult = {
@@ -144,30 +145,41 @@ function parseUtxos(payload: any, fallbackAddress: string): UTXO[] {
     .filter((u: UTXO) => u.txid.length === 64 && u.vout >= 0 && u.satoshis > 0 && u.scriptPubKey.length > 0);
 }
 
+function txOutputAmountFromUtxo(txid: string, address: string, utxoPayload: any): number {
+  return parseUtxos(utxoPayload, address)
+    .filter(utxo => utxo.txid === txid)
+    .reduce((sum, utxo) => sum + utxo.satoshis / 1e8, 0);
+}
+
 function parseApiHistory(items: unknown, address: string, utxoPayload: any): Tx[] {
   if (!Array.isArray(items)) return [];
-  const utxoByTxid = new Map<string, number>();
-  for (const utxo of parseUtxos(utxoPayload, address)) {
-    utxoByTxid.set(utxo.txid, (utxoByTxid.get(utxo.txid) ?? 0) + utxo.satoshis / 1e8);
-  }
 
   return items.flatMap((raw, index) => {
     if (!raw || typeof raw !== "object") return [];
     const item = raw as Record<string, unknown>;
     const id = safeText(item.txid ?? item.tx_hash ?? item.hash ?? item.id ?? `tx_${index}`);
-    const explicitCoin = item.amount_pepew !== undefined || item.value_pepew !== undefined || item.delta_pepew !== undefined;
-    const amountRaw = item.amount_pepew ?? item.value_pepew ?? item.delta_pepew ?? item.amount_atoms ?? item.value_atoms ?? item.atoms ?? item.satoshis ?? item.amount ?? item.value ?? item.balance_delta;
-    const apiAmount = amountRaw === undefined || amountRaw === null || amountRaw === "" ? 0 : pepewFromApiAmount(amountRaw, explicitCoin);
-    const fallbackAmount = utxoByTxid.get(id) ?? 0;
-    const signedAmount = apiAmount || fallbackAmount;
+
+    // IMPORTANT: generic `amount` / `value` in explorer-style history may mean total tx value or output value,
+    // not this wallet address delta. Do not use those fields for wallet balance/history cards.
+    const explicitDeltaRaw = item.delta_pepew ?? item.balance_delta_pepew ?? item.address_delta_pepew ?? item.delta_atoms ?? item.balance_delta_atoms ?? item.balance_delta;
+    const hasExplicitDelta = explicitDeltaRaw !== undefined && explicitDeltaRaw !== null && explicitDeltaRaw !== "";
+    const explicitIsCoin = item.delta_pepew !== undefined || item.balance_delta_pepew !== undefined || item.address_delta_pepew !== undefined;
+    const deltaAmount = hasExplicitDelta ? pepewFromApiAmount(explicitDeltaRaw, explicitIsCoin) : 0;
+
+    const receivedUnspentAmount = !hasExplicitDelta ? txOutputAmountFromUtxo(id, address, utxoPayload) : 0;
+    const amount = deltaAmount || receivedUnspentAmount;
     const timestamp = item.timestamp ?? item.time ?? item.block_time ?? item.blockTime ?? Date.now();
+    const direction = safeText(item.direction).toLowerCase();
+    const isSend = direction.includes("send") || amount < 0;
+
     return [{
       id,
-      amount: Math.abs(signedAmount),
+      amount: Math.abs(amount),
       address: safeText(item.address ?? address),
       timestamp: normalizeTimestamp(timestamp),
-      isSend: safeText(item.direction).toLowerCase().includes("send") || signedAmount < 0,
+      isSend,
       isPending: safeNumber(item.height, 1) <= 0 || item.pending === true,
+      isUnknownAmount: amount === 0,
     }];
   });
 }
@@ -192,6 +204,8 @@ function Header({ title, onBack }: { title: string; onBack?: () => void }) {
 }
 
 function TxCard({ tx }: { tx: Tx }) {
+  const title = tx.isUnknownAmount ? "Wallet Transaction" : tx.isSend ? "Sent PEPEW" : "Received PEPEW";
+  const sign = tx.isUnknownAmount ? "" : tx.isSend ? "-" : "+";
   return (
     <div className="flex items-center justify-between rounded-2xl border border-green-50 bg-white p-4 shadow-sm">
       <div className="flex items-center gap-3">
@@ -199,13 +213,13 @@ function TxCard({ tx }: { tx: Tx }) {
           {tx.isSend ? <ArrowUpRight size={16} /> : <ArrowDownLeft size={16} />}
         </div>
         <div>
-          <div className="text-sm font-bold text-slate-800">{tx.isSend ? "Sent PEPEW" : "Received PEPEW"}</div>
+          <div className="text-sm font-bold text-slate-800">{title}</div>
           <div className="break-all font-mono text-[11px] text-slate-400">{shortText(tx.id, 10, 8)}</div>
           <div className="text-[11px] text-slate-400">{tx.isPending ? "Pending / local" : formatDate(tx.timestamp)}</div>
         </div>
       </div>
       <div className="text-right font-mono text-sm font-bold text-green-700">
-        {tx.isSend ? "-" : "+"}{formatAmount(tx.amount, 2)}
+        {tx.isUnknownAmount ? "—" : `${sign}${formatAmount(tx.amount, 2)}`}
       </div>
     </div>
   );
@@ -540,7 +554,7 @@ export default function App() {
 
       {screen === "settings" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
-          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW Wallet</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Version:</span><b className="text-green-700">1.0.3 (Phase 3 Experimental)</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Network:</span><b>P2PKH v55</b></div><div className="flex justify-between py-3"><span className="font-mono text-xs text-slate-400">Height:</span><b>{height}</b></div></section>
+          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW Wallet</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Version:</span><b className="text-green-700">1.0.4 (Phase 3 Experimental)</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Network:</span><b>P2PKH v55</b></div><div className="flex justify-between py-3"><span className="font-mono text-xs text-slate-400">Height:</span><b>{height}</b></div></section>
           <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-500">INTERACTIVE ADDRESS SWITCHING</div><label className="flex items-center justify-between rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-900">Use Demo Read-Only Address<input type="checkbox" checked={useDemoAddress} onChange={e => { setUseDemoAddress(e.target.checked); setLocalTxs([]); setBroadcastResult(null); setLastRefreshAt(0); }} /></label><div className="mt-3 break-all rounded-xl bg-slate-50 p-3 font-mono text-[11px] text-slate-400">Selected Address: {activeAddress}</div></section>
           <section className="rounded-3xl border border-green-200 bg-green-50 p-5 text-sm leading-6 text-green-900">🔒 Private keys, derived keys, and signing are local browser-preview logic. Never use this experimental prototype with large funds.</section>
           <button onClick={() => setScreen("seed")} className="w-full rounded-2xl bg-red-600 py-4 font-mono text-xs font-bold tracking-widest text-white">WIPE & RESET WALLET</button>
