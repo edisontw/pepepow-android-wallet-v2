@@ -58,7 +58,7 @@ type SendReview = {
   inputs: number;
 };
 
-const API_BASE = "https://light.pepepow.net";
+const API_BASE = (import.meta as any).env?.DEV ? "" : "https://light.pepepow.net";
 const DEMO_ADDRESS = "PRfbEeHAKKbz6Voz85WJudrJwTA3ZbHunb";
 const WORDS = ["swamp", "pepe", "key", "power", "wallet", "frog", "meme", "blockchain", "pond", "green", "crypto", "speed"];
 const DEFAULT_RECIPIENT = "PL8s5WjXUGhHVSo743dwEXGtsifV5YpdcD";
