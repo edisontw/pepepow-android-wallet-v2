@@ -10,6 +10,16 @@ type LockScreenProps = {
 
 export function LockScreen({ message, onUnlock, onBiometricUnlock, onReset }: LockScreenProps) {
   const [pin, setPin] = useState("");
+  const [localError, setLocalError] = useState("");
+
+  function submitPin() {
+    if (pin.trim().length < 4) {
+      setLocalError("Enter at least 4 characters for the Phase 5 placeholder PIN.");
+      return;
+    }
+    setLocalError("");
+    onUnlock(pin);
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center space-y-4 bg-[#eef7e9] p-4 text-slate-900">
@@ -23,18 +33,25 @@ export function LockScreen({ message, onUnlock, onBiometricUnlock, onReset }: Lo
         </div>
 
         {message && <div className="mb-4 rounded-2xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">{message}</div>}
+        {localError && <div className="mb-4 rounded-2xl bg-red-50 p-3 text-xs leading-5 text-red-700">{localError}</div>}
 
         <label className="font-mono text-xs font-bold tracking-widest text-slate-500">PLACEHOLDER PIN</label>
         <input
           value={pin}
-          onChange={event => setPin(event.target.value)}
+          onChange={event => {
+            setPin(event.target.value);
+            setLocalError("");
+          }}
+          onKeyDown={event => {
+            if (event.key === "Enter") submitPin();
+          }}
           className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-sm outline-none focus:border-green-500"
-          placeholder="Enter 4+ digits"
+          placeholder="Enter 4+ characters"
           type="password"
         />
 
         <button
-          onClick={() => onUnlock(pin)}
+          onClick={submitPin}
           className="mt-4 w-full rounded-2xl bg-green-700 py-4 font-mono text-xs font-bold tracking-widest text-white"
         >
           UNLOCK PREVIEW WALLET
