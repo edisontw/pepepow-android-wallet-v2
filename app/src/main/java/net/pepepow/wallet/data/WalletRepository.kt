@@ -148,6 +148,6 @@ class FakeWalletRepository : WalletRepository {
 
     companion object {
         private const val FAKE_MNEMONIC =
-            "pepe frog wallet mock phase one seed words only demo safe never real"
+            "pepe frog wallet mock phase one seed words demo safe never real"
     }
 }
