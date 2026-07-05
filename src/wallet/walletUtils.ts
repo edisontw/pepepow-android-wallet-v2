@@ -1,5 +1,8 @@
 import { secp256k1 } from "@noble/curves/secp256k1";
+import { hmac } from "@noble/hashes/hmac";
+import { pbkdf2 } from "@noble/hashes/pbkdf2";
 import { sha256 } from "@noble/hashes/sha256";
+import { sha512 } from "@noble/hashes/sha512";
 import { ripemd160 } from "@noble/hashes/ripemd160";
 import bs58 from "bs58";
 
@@ -9,6 +12,13 @@ export interface UTXO {
   satoshis: number;
   scriptPubKey: string; // hex string
 }
+
+export const PEPEPOW_P2PKH_VERSION = 0x37;
+export const PEPEPOW_WIF_VERSION = 0xcc;
+export const PEPEPOW_DEFAULT_DERIVATION_PATH = "m/44'/5'/0'/0/0";
+
+const SECP256K1_ORDER = BigInt("0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
+const HARDENED_OFFSET = 0x80000000;
 
 // -------------------------------------------------------------
 // Core Byte & Hex Serialization Helpers
@@ -50,6 +60,13 @@ export function writeUInt32(val: number): Uint8Array {
   return buf;
 }
 
+function writeUInt32BE(val: number): Uint8Array {
+  const buf = new Uint8Array(4);
+  const view = new DataView(buf.buffer);
+  view.setUint32(0, val, false);
+  return buf;
+}
+
 export function writeInt64(val: number): Uint8Array {
   const buf = new Uint8Array(8);
   const view = new DataView(buf.buffer);
@@ -86,7 +103,7 @@ function doubleSha256(bytes: Uint8Array): Uint8Array {
 }
 
 // -------------------------------------------------------------
-// Base58Check & Key Derivation Utilities
+// Base58Check, BIP39 Seed, BIP32 Path & Key Derivation Utilities
 // -------------------------------------------------------------
 
 export function base58CheckEncode(version: number, payload: Uint8Array): string {
@@ -114,17 +131,110 @@ export function addressToHash160(address: string): Uint8Array {
   return decoded.subarray(1, decoded.length - 4);
 }
 
-export function derivePrivateKeyFromMnemonic(mnemonic: string): Uint8Array {
-  return sha256(new TextEncoder().encode(mnemonic.trim()));
+function textToBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value.normalize("NFKD"));
 }
 
-export function getAddressFromPrivateKey(privKey: Uint8Array, version = 55): string {
+function bytesToBigInt(bytes: Uint8Array): bigint {
+  return BigInt(`0x${bytesToHex(bytes)}`);
+}
+
+function bigIntTo32Bytes(value: bigint): Uint8Array {
+  const hex = value.toString(16).padStart(64, "0");
+  return hexToBytes(hex);
+}
+
+function isValidPrivateKey(value: bigint): boolean {
+  return value > 0n && value < SECP256K1_ORDER;
+}
+
+function normalizeMnemonic(mnemonic: string): string {
+  return mnemonic.normalize("NFKD").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function mnemonicToSeedSync(mnemonic: string, passphrase = ""): Uint8Array {
+  const password = textToBytes(normalizeMnemonic(mnemonic));
+  const salt = textToBytes(`mnemonic${passphrase.normalize("NFKD")}`);
+  return pbkdf2(sha512, password, salt, { c: 2048, dkLen: 64 });
+}
+
+type Bip32PrivateNode = {
+  privateKey: Uint8Array;
+  chainCode: Uint8Array;
+};
+
+function masterNodeFromSeed(seed: Uint8Array): Bip32PrivateNode {
+  const I = hmac(sha512, textToBytes("Bitcoin seed"), seed);
+  const privateKey = I.slice(0, 32);
+  const chainCode = I.slice(32, 64);
+  if (!isValidPrivateKey(bytesToBigInt(privateKey))) {
+    throw new Error("Invalid BIP32 master key");
+  }
+  return { privateKey, chainCode };
+}
+
+function parsePathComponent(component: string): number {
+  const hardened = component.endsWith("'") || component.endsWith("h") || component.endsWith("H");
+  const raw = hardened ? component.slice(0, -1) : component;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`Invalid derivation path component: ${component}`);
+  }
+  const index = Number(raw);
+  if (!Number.isSafeInteger(index) || index < 0 || index >= HARDENED_OFFSET) {
+    throw new Error(`Derivation path index out of range: ${component}`);
+  }
+  return hardened ? index + HARDENED_OFFSET : index;
+}
+
+function parseDerivationPath(path: string): number[] {
+  const clean = path.trim();
+  if (clean === "m") return [];
+  if (!clean.startsWith("m/")) {
+    throw new Error("Derivation path must start with m/");
+  }
+  return clean.slice(2).split("/").map(parsePathComponent);
+}
+
+function deriveChildPrivateKey(parent: Bip32PrivateNode, index: number): Bip32PrivateNode {
+  const hardened = index >= HARDENED_OFFSET;
+  const parentKeyInt = bytesToBigInt(parent.privateKey);
+  const data = hardened
+    ? concatBytes(new Uint8Array([0]), parent.privateKey, writeUInt32BE(index))
+    : concatBytes(secp256k1.getPublicKey(parent.privateKey, true), writeUInt32BE(index));
+  const I = hmac(sha512, parent.chainCode, data);
+  const tweak = bytesToBigInt(I.slice(0, 32));
+  if (tweak >= SECP256K1_ORDER) {
+    throw new Error("Invalid BIP32 child tweak");
+  }
+  const childKeyInt = (tweak + parentKeyInt) % SECP256K1_ORDER;
+  if (!isValidPrivateKey(childKeyInt)) {
+    throw new Error("Invalid BIP32 child private key");
+  }
+  return {
+    privateKey: bigIntTo32Bytes(childKeyInt),
+    chainCode: I.slice(32, 64),
+  };
+}
+
+export function derivePrivateKeyFromMnemonic(
+  mnemonic: string,
+  derivationPath = PEPEPOW_DEFAULT_DERIVATION_PATH
+): Uint8Array {
+  const seed = mnemonicToSeedSync(mnemonic);
+  let node = masterNodeFromSeed(seed);
+  for (const index of parseDerivationPath(derivationPath)) {
+    node = deriveChildPrivateKey(node, index);
+  }
+  return node.privateKey;
+}
+
+export function getAddressFromPrivateKey(privKey: Uint8Array, version = PEPEPOW_P2PKH_VERSION): string {
   const pubKey = secp256k1.getPublicKey(privKey, true);
   const hash = ripemd160(sha256(pubKey));
   return base58CheckEncode(version, hash);
 }
 
-export function privateKeyToWIF(privKey: Uint8Array, version = 204): string {
+export function privateKeyToWIF(privKey: Uint8Array, version = PEPEPOW_WIF_VERSION): string {
   const payload = new Uint8Array(33);
   payload.set(privKey, 0);
   payload[32] = 0x01; // compressed public key flag
@@ -153,7 +263,7 @@ export function createAndSignTransaction(
   amountPepew: number,
   feePepew: number,
   senderAddress: string,
-  p2pkhVersion = 55
+  p2pkhVersion = PEPEPOW_P2PKH_VERSION
 ): string {
   const amountSat = Math.round(amountPepew * 1e8);
   const feeSat = Math.round(feePepew * 1e8);
@@ -239,37 +349,32 @@ export function createAndSignTransaction(
       writeVarInt(pubKey.length),
       pubKey
     );
-
     signedScriptSigs.push(scriptSig);
   }
 
-  // 4. Build final serialized transaction
-  const finalInputs = selectedUtxos.map((utxo, idx) => {
-    return {
-      txid: utxo.txid,
-      vout: utxo.vout,
-      scriptSig: signedScriptSigs[idx]
-    };
-  });
+  // 4. Final Transaction Serialization
+  const finalInputs = selectedUtxos.map((utxo, i) => concatBytes(
+    hexToBytes(utxo.txid).reverse(),
+    writeUInt32(utxo.vout),
+    writeVarInt(signedScriptSigs[i].length),
+    signedScriptSigs[i],
+    writeUInt32(0xffffffff)
+  ));
 
-  const finalSerialized = concatBytes(
-    writeUInt32(1), // version
+  const finalOutputs = outputs.map(output => concatBytes(
+    writeInt64(output.amount),
+    writeVarInt(output.scriptPubKey.length),
+    output.scriptPubKey
+  ));
+
+  const tx = concatBytes(
+    writeUInt32(1),
     writeVarInt(finalInputs.length),
-    ...finalInputs.map(input => concatBytes(
-      hexToBytes(input.txid).reverse(),
-      writeUInt32(input.vout),
-      writeVarInt(input.scriptSig.length),
-      input.scriptSig,
-      writeUInt32(0xffffffff)
-    )),
-    writeVarInt(outputs.length),
-    ...outputs.map(output => concatBytes(
-      writeInt64(output.amount),
-      writeVarInt(output.scriptPubKey.length),
-      output.scriptPubKey
-    )),
-    writeUInt32(0) // locktime
+    ...finalInputs,
+    writeVarInt(finalOutputs.length),
+    ...finalOutputs,
+    writeUInt32(0)
   );
 
-  return bytesToHex(finalSerialized);
+  return bytesToHex(tx);
 }
