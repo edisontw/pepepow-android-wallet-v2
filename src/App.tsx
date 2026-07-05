@@ -118,8 +118,7 @@ function atomsFromUtxo(u: any): number {
     return atomsFromApiValue(explicitAtoms, true);
   }
   const value = u.value ?? u.amount ?? u.value_pepew ?? u.amount_pepew;
-  const explicitCoin = u.value_pepew !== undefined || u.amount_pepew !== undefined;
-  return atomsFromApiValue(value, false && explicitCoin);
+  return atomsFromApiValue(value, false);
 }
 
 function scriptForAddress(address: string): string {
@@ -171,6 +170,16 @@ function parseApiHistory(items: unknown, address: string, utxoPayload: any): Tx[
   });
 }
 
+function mergeTxs(apiTxs: Tx[], localTxs: Tx[]): Tx[] {
+  const seen = new Set<string>();
+  return [...localTxs, ...apiTxs].filter(tx => {
+    const key = tx.id || `${tx.address}-${tx.timestamp}-${tx.amount}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function Header({ title, onBack }: { title: string; onBack?: () => void }) {
   return (
     <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-green-100 bg-white px-4 py-3 text-green-800">
@@ -190,7 +199,7 @@ function TxCard({ tx }: { tx: Tx }) {
         <div>
           <div className="text-sm font-bold text-slate-800">{tx.isSend ? "Sent PEPEW" : "Received PEPEW"}</div>
           <div className="break-all font-mono text-[11px] text-slate-400">{shortText(tx.id, 10, 8)}</div>
-          <div className="text-[11px] text-slate-400">{tx.isPending ? "Pending" : formatDate(tx.timestamp)}</div>
+          <div className="text-[11px] text-slate-400">{tx.isPending ? "Pending / local" : formatDate(tx.timestamp)}</div>
         </div>
       </div>
       <div className="text-right font-mono text-sm font-bold text-green-700">
@@ -208,6 +217,7 @@ export default function App() {
   const [customSeedInput, setCustomSeedInput] = useState("");
   const [balance, setBalance] = useState(0);
   const [txs, setTxs] = useState<Tx[]>([]);
+  const [localTxs, setLocalTxs] = useState<Tx[]>([]);
   const [apiState, setApiState] = useState<ApiState>("CONNECTED");
   const [apiMessage, setApiMessage] = useState("Experimental test wallet. Use small test funds only.");
   const [height, setHeight] = useState("-");
@@ -235,7 +245,7 @@ export default function App() {
 
   const activeAddress = useDemoAddress ? DEMO_ADDRESS : localWallet.address;
 
-  async function refreshApi() {
+  async function refreshApi(options?: { keepLocal?: boolean }) {
     setApiState("CONNECTED");
     setApiMessage(`Querying ${shortText(activeAddress)}...`);
     try {
@@ -243,7 +253,7 @@ export default function App() {
         fetch(`${API_BASE}/api/status`),
         fetch(`${API_BASE}/api/wallet/address/${activeAddress}`),
         fetch(`${API_BASE}/api/wallet/history/${activeAddress}?limit=50&offset=0`),
-        fetch(`${API_BASE}/api/wallet/utxo/${activeAddress}`),
+        fetch(`${API_BASE}/api/wallet/utxo/${activeAddress}?t=${Date.now()}`),
       ]);
       const status = await statusRes.json().catch(() => ({}));
       const summary = await summaryRes.json().catch(() => ({}));
@@ -254,29 +264,37 @@ export default function App() {
       const confirmed = pepewFromApiAmount(confirmedRaw, summary?.balance?.confirmed_pepew !== undefined || summary?.balance?.total_pepew !== undefined || summary?.confirmed_pepew !== undefined);
       const unconfirmed = pepewFromApiAmount(unconfirmedRaw, summary?.balance?.unconfirmed_pepew !== undefined || summary?.unconfirmed_pepew !== undefined);
       const parsedUtxos = parseUtxos(utxoData, activeAddress);
-      const parsedTxs = parseApiHistory(history?.history ?? history?.transactions ?? summary?.history ?? [], activeAddress, utxoData);
-      setBalance(confirmed + unconfirmed || parsedUtxos.reduce((sum, u) => sum + u.satoshis / 1e8, 0));
-      setTxs(parsedTxs);
+      const apiTxs = parseApiHistory(history?.history ?? history?.transactions ?? summary?.history ?? [], activeAddress, utxoData);
+      const utxoBalance = parsedUtxos.reduce((sum, u) => sum + u.satoshis / 1e8, 0);
+      setBalance(confirmed + unconfirmed || utxoBalance);
+      setTxs(options?.keepLocal ? mergeTxs(apiTxs, localTxs) : apiTxs);
       setUtxoCount(parsedUtxos.length);
-      setUtxoTotal(parsedUtxos.reduce((sum, u) => sum + u.satoshis / 1e8, 0));
+      setUtxoTotal(utxoBalance);
       setHeight(safeText(status?.height ?? status?.block_height ?? "-"));
       setApiState(statusRes.ok && summaryRes.ok ? "READY" : "FAILED");
-      setApiMessage(parsedTxs.length > 0 ? `API ready. ${parsedTxs.length} history entries, ${parsedUtxos.length} UTXOs.` : `API ready. ${parsedUtxos.length} UTXOs.`);
+      setApiMessage(apiTxs.length > 0 ? `API ready. ${apiTxs.length} history entries, ${parsedUtxos.length} UTXOs.` : `API ready. ${parsedUtxos.length} UTXOs.`);
     } catch (error) {
       setApiState("FAILED");
       setApiMessage(error instanceof Error ? error.message : "Unable to reach PEPEW Light API.");
-      setTxs([]);
+      setTxs(options?.keepLocal ? localTxs : []);
     }
   }
 
   useEffect(() => {
-    if (walletReady) refreshApi();
+    if (walletReady) refreshApi({ keepLocal: true });
   }, [walletReady, activeAddress]);
 
   function handleCopy(text: string, label: string) {
     navigator.clipboard?.writeText(text);
     setCopiedText(label);
     setTimeout(() => setCopiedText(""), 1800);
+  }
+
+  function openSend() {
+    setBroadcastResult(null);
+    setSignedTxHex("");
+    setSendError("");
+    setScreen("send");
   }
 
   function importSeed() {
@@ -289,6 +307,7 @@ export default function App() {
     setInputSeedMode(false);
     setCustomSeedInput("");
     setSendError("");
+    setLocalTxs([]);
   }
 
   async function prepareLocalTransaction() {
@@ -311,7 +330,7 @@ export default function App() {
 
     try {
       setSendError("Fetching live UTXOs from PEPEW Light API...");
-      const utxoRes = await fetch(`${API_BASE}/api/wallet/utxo/${activeAddress}`);
+      const utxoRes = await fetch(`${API_BASE}/api/wallet/utxo/${activeAddress}?t=${Date.now()}`);
       if (!utxoRes.ok) throw new Error(`Failed to query UTXOs. HTTP ${utxoRes.status}`);
       const utxoData = await utxoRes.json();
       const parsedUtxos = parseUtxos(utxoData, activeAddress);
@@ -345,6 +364,15 @@ export default function App() {
     if (!signedTxHex) return;
     setIsBroadcasting(true);
     setBroadcastResult(null);
+    const amount = safeNumber(sendAmount);
+    const optimisticTx: Tx = {
+      id: `local-${Date.now()}`,
+      amount,
+      address: recipient.trim(),
+      timestamp: Date.now(),
+      isSend: true,
+      isPending: true,
+    };
     try {
       const res = await fetch(`${API_BASE}/api/wallet/broadcast`, {
         method: "POST",
@@ -355,11 +383,19 @@ export default function App() {
       if (!res.ok || payload?.error || payload?.detail) {
         throw new Error(safeText(payload?.error ?? payload?.message ?? payload?.detail ?? `Broadcast failed. HTTP ${res.status}`));
       }
-      const txid = safeText(payload?.txid ?? payload?.tx_hash ?? payload?.result ?? payload?.data ?? "broadcasted");
+      const txid = safeText(payload?.txid ?? payload?.tx_hash ?? payload?.result ?? payload?.data ?? optimisticTx.id);
+      const submittedTx = { ...optimisticTx, id: txid };
+      const nextLocal = [submittedTx, ...localTxs];
+      setLocalTxs(nextLocal);
+      setTxs(prev => mergeTxs(prev, [submittedTx]));
+      setBalance(prev => Math.max(0, prev - amount - MOCK_FEE));
+      setUtxoTotal(prev => Math.max(0, prev - amount - MOCK_FEE));
+      setUtxoCount(0);
       setBroadcastResult({ success: true, txid });
-      setTxs(prev => [{ id: txid, amount: safeNumber(sendAmount), address: recipient.trim(), timestamp: Date.now(), isSend: true, isPending: true }, ...prev]);
       setSignedTxHex("");
-      await refreshApi();
+      setSendError("Broadcast submitted. API/explorer may need a few seconds to refresh.");
+      setTimeout(() => refreshApi({ keepLocal: true }), 5000);
+      setTimeout(() => refreshApi({ keepLocal: true }), 15000);
     } catch (err) {
       setBroadcastResult({ success: false, error: err instanceof Error ? err.message : "Broadcast failed." });
     } finally {
@@ -419,13 +455,13 @@ export default function App() {
             <div className="mt-5 border-t border-green-500 pt-4 font-mono text-xs">Address: <button onClick={() => handleCopy(activeAddress, "address")} className="underline">{shortText(activeAddress, 8, 6)}</button></div>
           </section>
           <div className="grid grid-cols-4 gap-3">
-            <button onClick={() => setScreen("send")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Send className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Send</div></button>
+            <button onClick={openSend} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Send className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Send</div></button>
             <button onClick={() => setScreen("receive")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><ArrowDownLeft className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Receive</div></button>
             <button onClick={() => setScreen("history")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><History className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">History</div></button>
             <button onClick={() => setScreen("settings")} className="rounded-2xl bg-white p-4 text-center shadow-sm"><Settings className="mx-auto mb-2 text-green-700" size={18} /><div className="text-xs font-bold">Settings</div></button>
           </div>
           <section className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between font-mono text-xs font-bold tracking-widest text-slate-400">RECENT ACTIVITY ({txs.length}) <button onClick={refreshApi}><RefreshCcw size={14} /></button></div>
+            <div className="mb-3 flex items-center justify-between font-mono text-xs font-bold tracking-widest text-slate-400">RECENT ACTIVITY ({txs.length}) <button onClick={() => refreshApi({ keepLocal: true })}><RefreshCcw size={14} /></button></div>
             {txs.length === 0 ? <div className="py-8 text-center text-sm text-slate-400">No transaction history found on API.</div> : <div className="space-y-3">{txs.slice(0, 3).map(tx => <TxCard key={tx.id} tx={tx} />)}</div>}
           </section>
         </main>
@@ -450,9 +486,9 @@ export default function App() {
         <main className="mx-auto max-w-md space-y-4 p-4">
           <section className="rounded-3xl bg-white p-5 shadow-sm">
             <label className="font-mono text-xs font-bold tracking-widest text-slate-500">RECIPIENT ADDRESS</label>
-            <input value={recipient} onChange={e => setRecipient(e.target.value)} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-sm outline-none focus:border-green-500" />
+            <input value={recipient} onChange={e => { setRecipient(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-sm outline-none focus:border-green-500" />
             <label className="mt-4 block font-mono text-xs font-bold tracking-widest text-slate-500">AMOUNT (PEPEW)</label>
-            <input value={sendAmount} onChange={e => setSendAmount(e.target.value)} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-sm outline-none focus:border-green-500" />
+            <input value={sendAmount} onChange={e => { setSendAmount(e.target.value); setBroadcastResult(null); }} className="mt-2 w-full rounded-xl border border-green-100 p-3 font-mono text-sm outline-none focus:border-green-500" />
             <div className="mt-4 flex justify-between rounded-xl bg-slate-50 p-3 font-mono text-xs"><span>Standard local fee:</span><span className="font-bold text-green-700">{MOCK_FEE} PEPEW</span></div>
           </section>
           <div className="rounded-2xl bg-white p-3 font-mono text-[11px] text-slate-500">UTXO debug: {utxoCount} spendable · {formatAmount(utxoTotal, 8)} PEPEW</div>
@@ -467,14 +503,14 @@ export default function App() {
       {screen === "history" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
           <div className="rounded-2xl bg-white p-4 font-mono text-xs text-slate-500">Querying: <span className="font-bold text-green-800">{shortText(activeAddress, 10, 8)}</span></div>
-          {txs.length === 0 ? <div className="rounded-3xl border border-green-200 bg-white p-8 text-center text-sm text-slate-500">No transactions returned from API. Receive coins or toggle the Demo Address in settings.</div> : txs.map(tx => <TxCard key={tx.id} tx={tx} />)}
+          {txs.length === 0 ? <div className="rounded-3xl border border-green-200 bg-white p-8 text-center text-sm text-slate-500">No transactions returned from API. Recent local broadcasts stay visible until API history catches up.</div> : txs.map(tx => <TxCard key={tx.id} tx={tx} />)}
         </main>
       )}
 
       {screen === "settings" && (
         <main className="mx-auto max-w-md space-y-4 p-4">
-          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW Wallet</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Version:</span><b className="text-green-700">1.0.1 (Phase 3 Experimental)</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Network:</span><b>P2PKH v55</b></div><div className="flex justify-between py-3"><span className="font-mono text-xs text-slate-400">Height:</span><b>{height}</b></div></section>
-          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-500">INTERACTIVE ADDRESS SWITCHING</div><label className="flex items-center justify-between rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-900">Use Demo Read-Only Address<input type="checkbox" checked={useDemoAddress} onChange={e => setUseDemoAddress(e.target.checked)} /></label><div className="mt-3 break-all rounded-xl bg-slate-50 p-3 font-mono text-[11px] text-slate-400">Selected Address: {activeAddress}</div></section>
+          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">App Name:</span><b>PEPEW Wallet</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Version:</span><b className="text-green-700">1.0.2 (Phase 3 Experimental)</b></div><div className="flex justify-between border-b py-3"><span className="font-mono text-xs text-slate-400">Network:</span><b>P2PKH v55</b></div><div className="flex justify-between py-3"><span className="font-mono text-xs text-slate-400">Height:</span><b>{height}</b></div></section>
+          <section className="rounded-3xl bg-white p-5 shadow-sm"><div className="mb-3 font-mono text-xs font-bold tracking-widest text-slate-500">INTERACTIVE ADDRESS SWITCHING</div><label className="flex items-center justify-between rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-900">Use Demo Read-Only Address<input type="checkbox" checked={useDemoAddress} onChange={e => { setUseDemoAddress(e.target.checked); setLocalTxs([]); setBroadcastResult(null); }} /></label><div className="mt-3 break-all rounded-xl bg-slate-50 p-3 font-mono text-[11px] text-slate-400">Selected Address: {activeAddress}</div></section>
           <section className="rounded-3xl border border-green-200 bg-green-50 p-5 text-sm leading-6 text-green-900">🔒 Private keys, derived keys, and signing are local browser-preview logic. Never use this experimental prototype with large funds.</section>
           <button onClick={() => setScreen("seed")} className="w-full rounded-2xl bg-red-600 py-4 font-mono text-xs font-bold tracking-widest text-white">WIPE & RESET WALLET</button>
         </main>
