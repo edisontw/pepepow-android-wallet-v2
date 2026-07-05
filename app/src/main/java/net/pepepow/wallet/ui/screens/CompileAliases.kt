@@ -1,5 +1,6 @@
 package net.pepepow.wallet.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -32,7 +33,7 @@ fun ActionButton(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.then(Modifier)
+        modifier = Modifier.clickable { onClick() }
     ) {
         Surface(
             color = PepepowSurface,
