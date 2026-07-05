@@ -1,10 +1,10 @@
 # Phase 3 Status
 
-Status: **AI Studio Phase 3 experimental wallet preview merged to `main`**
+Status: **Phase 3 experimental wallet works with live PEPEW Light API test funds**
 
 ## Scope
 
-This phase is now an experimental browser-preview wallet for small test amounts. It is intended for rapid AI Studio / Vite testing, not production use.
+This phase is an experimental browser-preview wallet for small test amounts. It is intended for rapid AI Studio / Vite testing, not production use.
 
 Implemented in the preview:
 
@@ -18,6 +18,8 @@ Implemented in the preview:
 - Signed transaction preview.
 - Live network submit through the PEPEW Light wallet endpoint.
 - Demo read-only address toggle for API testing.
+- API refresh cooldown and manual refresh button.
+- Post-broadcast optimistic balance update and delayed API refresh.
 
 ## Safety boundary
 
@@ -28,22 +30,55 @@ Known limitations:
 - The prototype uses simplified `sha256(seed phrase)` derivation, not reviewed BIP39/BIP32/BIP44 wallet-core logic.
 - WIF reveal is enabled for testing only.
 - Fee/change logic is minimal.
-- UTXO parsing is best-effort against current PEPEW Light API response variants.
+- UTXO selection is simple first-fit.
 - No encrypted persistent wallet storage is implemented.
 - No PIN, biometric lock, or auto-lock is implemented.
 - Use small test funds only.
 
 ## Current test status
 
-Observed before merge:
+Observed with live small funds on `PPcRmmbFbbSr4kEe2xNKarckfh2WFQuejW`:
 
 - Receive: PASS
 - Balance: PASS
-- History: PASS
-- UTXO/send: under test
-- Broadcast: under test
+- History amount/direction: PASS after backend verbose history update
+- UTXO lookup: PASS
+- Prepare/sign: PASS
+- Broadcast: PASS
+- Post-broadcast refresh: PASS
 
-The send path now includes broader UTXO parser support for fields such as `value_atoms`, `amount_atoms`, `atoms`, `satoshis`, `value`, `amount`, `txid`, `tx_hash`, `vout`, and `tx_pos`.
+Current known good live API behavior:
+
+- `/api/wallet/history/{address}` now returns wallet-friendly `direction`, `amount_pepew`, `address_delta_pepew`, `timestamp`, and `confirmations` by default.
+- `/api/wallet/utxo/{address}?fresh=1` returns the current spendable output and total atoms.
+
+## Backend dependency
+
+The wallet UI now relies on PEPEW Light backend history rows containing address-level deltas. The backend repo is:
+
+```text
+edisontw/pepepow-electrumx-service
+```
+
+Relevant backend behavior:
+
+```text
+GET /api/wallet/history/{address}?limit=50&offset=0
+```
+
+The endpoint defaults to verbose wallet history and returns:
+
+```text
+direction
+amount_atoms
+amount_pepew
+address_delta_atoms
+address_delta_pepew
+received_atoms
+spent_atoms
+timestamp
+confirmations
+```
 
 ## Next implementation notes
 
@@ -58,3 +93,13 @@ Before production release, replace the experimental wallet core with independent
 - Encrypted local storage.
 - PIN / biometric / auto-lock.
 - External wallet-core review.
+
+## Suggested next phase
+
+Phase 3.2 should focus on wallet reliability polish, not new cryptography:
+
+- Reduce frontend transaction-detail fallback calls once backend verbose history is confirmed stable.
+- Add a clearer Review screen before broadcast.
+- Add explicit fee/change display.
+- Add duplicate broadcast prevention and stronger post-broadcast state handling.
+- Add basic test vectors for address/WIF/transaction serialization if a test runner is added.
