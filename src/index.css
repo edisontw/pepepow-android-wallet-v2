@@ -5,3 +5,18 @@
   --font-sans: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 18px;
+  left: 22px;
+  z-index: 60;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background-image: url('/app/public/pepew-logo.png');
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
+}
