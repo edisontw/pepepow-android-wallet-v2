@@ -8,6 +8,8 @@ Documentation for PEPEW Wallet is collected in this folder.
 - [`android-icon-setup.md`](./android-icon-setup.md) — Android launcher icon setup notes.
 - [`release-polish-status.md`](./release-polish-status.md) — UI polish status and manual verification checklist.
 - [`development-history.md`](./development-history.md) — short record of completed development milestones.
+- [`app-small-patch-notes.md`](./app-small-patch-notes.md) — targeted App patch notes for Codex/Studio handoff.
+- [`github-connector-notes.md`](./github-connector-notes.md) — observed GitHub connector write limits and workaround flow.
 
 ## Current wallet rules
 
