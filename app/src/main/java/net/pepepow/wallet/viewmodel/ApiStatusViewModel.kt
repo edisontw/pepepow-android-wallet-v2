@@ -12,6 +12,12 @@ class ApiStatusViewModel(
 ) : ViewModel() {
 
     val apiState: StateFlow<ApiState> = repository.apiState
+    val apiMessage: StateFlow<String> = repository.apiMessage
+    val isApiLoading: StateFlow<Boolean> = repository.isApiLoading
+
+    init {
+        retryApiConnection()
+    }
 
     fun retryApiConnection() {
         viewModelScope.launch {
