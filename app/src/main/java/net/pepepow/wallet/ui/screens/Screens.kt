@@ -25,6 +25,18 @@ import net.pepepow.wallet.viewmodel.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatWriter
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import android.content.ClipboardManager
+import android.content.ClipData
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 
 // Custom Pepepow Theme Green colors
 val PepepowPrimary = Color(0xFF2E7D32) // Froggy Green
@@ -419,7 +431,13 @@ fun DashboardScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("🐸 PEPEW", fontWeight = FontWeight.Bold, color = PepepowPrimary)
+                        Image(
+                            painter = painterResource(id = net.pepepow.wallet.R.drawable.pepew_logo),
+                            contentDescription = "PEPEW Logo",
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("PEPEW", fontWeight = FontWeight.Bold, color = PepepowPrimary)
                     }
                 },
                 actions = {
@@ -671,13 +689,42 @@ fun TxItem(tx: Transaction) {
     }
 }
 
+fun generateQrCode(text: String, size: Int): Bitmap? {
+    if (text.isEmpty()) return null
+    return try {
+        val bitMatrix = MultiFormatWriter().encode(text, BarcodeFormat.QR_CODE, size, size)
+        val width = bitMatrix.width
+        val height = bitMatrix.height
+        val pixels = IntArray(width * height)
+        for (y in 0 until height) {
+            val offset = y * width
+            for (x in 0 until width) {
+                pixels[offset + x] = if (bitMatrix.get(x, y)) AndroidColor.BLACK else AndroidColor.WHITE
+            }
+        }
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+        bitmap
+    } catch (e: Exception) {
+        null
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReceiveScreen(
-    viewModel: WalletViewModel,
+    walletViewModel: WalletViewModel,
     onNavigateBack: () -> Unit
 ) {
-    val address by viewModel.address.collectAsState()
+    val address by walletViewModel.address.collectAsState()
+    val context = LocalContext.current
+    val qrBitmap = remember(address) {
+        if (address.isNotEmpty()) {
+            generateQrCode(address, 512)
+        } else {
+            null
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -716,7 +763,7 @@ fun ReceiveScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Mock QR Code Box
+                // Real QR Code Box
                 Surface(
                     color = PepepowSurface,
                     shape = RoundedCornerShape(20.dp),
@@ -729,14 +776,21 @@ fun ReceiveScreen(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // Drawing a beautiful custom vector QR Code placeholder
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.QrCode,
+                        if (qrBitmap != null) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
                                 contentDescription = "QR Code",
-                                tint = Color.Black,
-                                modifier = Modifier.size(160.dp)
+                                modifier = Modifier.size(180.dp)
                             )
+                        } else {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.QrCode,
+                                    contentDescription = "QR Code Placeholder",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(160.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -766,7 +820,14 @@ fun ReceiveScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Button(
-                            onClick = { /* Copy address action standard */ },
+                            onClick = {
+                                if (address.isNotEmpty()) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("PEPEW Address", address)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = PepepowBackground),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             shape = RoundedCornerShape(8.dp),
@@ -1006,12 +1067,12 @@ fun HistoryScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    viewModel: WalletViewModel,
+    walletViewModel: WalletViewModel,
     onNavigateBack: () -> Unit,
     onResetWallet: () -> Unit
 ) {
     var showSeedPrompt by remember { mutableStateOf(false) }
-    val mnemonic by viewModel.mnemonic.collectAsState()
+    val mnemonic by walletViewModel.mnemonic.collectAsState()
 
     Scaffold(
         topBar = {

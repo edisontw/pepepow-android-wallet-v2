@@ -1,9 +1,12 @@
 package net.pepepow.wallet.data
 
+import android.content.Context
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * API status values used by the wallet UI.
@@ -63,12 +66,23 @@ interface WalletRepository {
  * - No broadcast.
  * - No real API call.
  */
-class FakeWalletRepository : WalletRepository {
-    private val _balance = MutableStateFlow(12345.6789)
+class FakeWalletRepository(private val context: Context) : WalletRepository {
+    private val prefs = context.getSharedPreferences("wallet_prefs", Context.MODE_PRIVATE)
+
+    private val _isWalletCreated = MutableStateFlow(prefs.getBoolean("wallet_created", false))
+    override val isWalletCreated: StateFlow<Boolean> = _isWalletCreated.asStateFlow()
+
+    private val _mnemonic = MutableStateFlow<String?>(prefs.getString("mnemonic", null))
+    override val mnemonic: StateFlow<String?> = _mnemonic.asStateFlow()
+
+    private val _address = MutableStateFlow(prefs.getString("address", "") ?: "")
+    override val address: StateFlow<String> = _address.asStateFlow()
+
+    private val _balance = MutableStateFlow(prefs.getFloat("balance", 0f).toDouble())
     override val balance: StateFlow<Double> = _balance.asStateFlow()
 
-    private val _address = MutableStateFlow("PExamplePepepowAddress123456789")
-    override val address: StateFlow<String> = _address.asStateFlow()
+    private val _transactions = MutableStateFlow<List<Transaction>>(loadTransactions())
+    override val transactions: StateFlow<List<Transaction>> = _transactions.asStateFlow()
 
     private val _apiState = MutableStateFlow(ApiState.READY)
     override val apiState: StateFlow<ApiState> = _apiState.asStateFlow()
@@ -79,33 +93,49 @@ class FakeWalletRepository : WalletRepository {
     private val _isApiLoading = MutableStateFlow(false)
     override val isApiLoading: StateFlow<Boolean> = _isApiLoading.asStateFlow()
 
-    private val _mnemonic = MutableStateFlow<String?>(null)
-    override val mnemonic: StateFlow<String?> = _mnemonic.asStateFlow()
-
-    private val _isWalletCreated = MutableStateFlow(false)
-    override val isWalletCreated: StateFlow<Boolean> = _isWalletCreated.asStateFlow()
-
-    private val _transactions = MutableStateFlow(mockTransactions())
-    override val transactions: StateFlow<List<Transaction>> = _transactions.asStateFlow()
-
     override fun createWallet() {
-        _mnemonic.value = FAKE_MNEMONIC
-        _address.value = "PExamplePepepowAddress123456789"
-        _balance.value = 12345.6789
+        val words = listOf(
+            "pepe", "frog", "wallet", "mock", "phase", "one", "seed", "words",
+            "demo", "safe", "never", "real", "power", "speed", "green", "crypto",
+            "pepepow", "meme", "moon", "token", "shield", "secure", "keys", "private"
+        )
+        val newMnemonic = (1..12).map { words.random() }.joinToString(" ")
+        val randomSuffix = (1..15).map { (('a'..'z') + ('A'..'Z') + ('0'..'9')).random() }.joinToString("")
+        val newAddress = "PMockPepepowAddress$randomSuffix"
+        
+        _mnemonic.value = newMnemonic
+        _address.value = newAddress
+        _balance.value = 0.0
+        _transactions.value = emptyList()
+        _isWalletCreated.value = false
+        
+        prefs.edit().apply {
+            putString("mnemonic", newMnemonic)
+            putString("address", newAddress)
+            putFloat("balance", 0.0f)
+            putBoolean("wallet_created", false)
+            putString("transactions", JSONArray().toString())
+            apply()
+        }
+        
         _apiState.value = ApiState.READY
         _apiMessage.value = "Mock wallet ready."
     }
 
     override fun confirmBackup() {
         _isWalletCreated.value = true
+        prefs.edit().putBoolean("wallet_created", true).apply()
     }
 
     override fun clearWallet() {
         _mnemonic.value = null
+        _address.value = ""
+        _balance.value = 0.0
+        _transactions.value = emptyList()
         _isWalletCreated.value = false
-        _address.value = "PExamplePepepowAddress123456789"
-        _balance.value = 12345.6789
-        _transactions.value = mockTransactions()
+        
+        prefs.edit().clear().apply()
+        
         _apiState.value = ApiState.READY
         _apiMessage.value = "Mock wallet reset."
     }
@@ -115,7 +145,9 @@ class FakeWalletRepository : WalletRepository {
         val total = amount + fee
         if (amount <= 0.0 || total > _balance.value) return false
 
-        _balance.value -= total
+        val newBalance = _balance.value - total
+        _balance.value = newBalance
+        
         val pendingTx = Transaction(
             txId = "mock_pending_${System.currentTimeMillis()}",
             address = recipientAddress,
@@ -124,20 +156,26 @@ class FakeWalletRepository : WalletRepository {
             isSend = true,
             isPending = true
         )
-        _transactions.value = listOf(pendingTx) + _transactions.value
+        val updatedList = listOf(pendingTx) + _transactions.value
+        _transactions.value = updatedList
+        
+        prefs.edit().putFloat("balance", newBalance.toFloat()).apply()
+        saveTransactions(updatedList)
         return true
     }
 
     override suspend fun retryConnection() {
+        _isApiLoading.value = true
         _apiState.value = ApiState.CONNECTED
         _apiMessage.value = "Mock connection retry..."
-        delay(300)
+        delay(500)
         _apiState.value = ApiState.READY
         _apiMessage.value = "Mock API ready."
+        _isApiLoading.value = false
     }
 
     override suspend fun refreshWalletData() {
-        _apiMessage.value = "Mock wallet data already loaded."
+        // Mock data is self-contained.
     }
 
     override fun setApiState(state: ApiState) {
@@ -145,9 +183,9 @@ class FakeWalletRepository : WalletRepository {
         _apiMessage.value = "Mock API state: $state"
     }
 
-    private fun mockTransactions(): List<Transaction> {
+    fun loadDemoTransactions() {
         val now = System.currentTimeMillis()
-        return listOf(
+        val demoList = listOf(
             Transaction(
                 txId = "mock_receive_001",
                 address = "PExampleSenderAddress123456789",
@@ -163,11 +201,47 @@ class FakeWalletRepository : WalletRepository {
                 isSend = true
             )
         )
+        _transactions.value = demoList
+        saveTransactions(demoList)
     }
 
-    companion object {
-        private const val FAKE_MNEMONIC =
-            "pepe frog wallet mock phase one seed words demo safe never real"
+    private fun saveTransactions(transactions: List<Transaction>) {
+        val array = JSONArray()
+        for (tx in transactions) {
+            val obj = JSONObject()
+            obj.put("txId", tx.txId)
+            obj.put("address", tx.address)
+            obj.put("amount", tx.amount)
+            obj.put("timestamp", tx.timestamp)
+            obj.put("isSend", tx.isSend)
+            obj.put("isPending", tx.isPending)
+            array.put(obj)
+        }
+        prefs.edit().putString("transactions", array.toString()).apply()
+    }
+
+    private fun loadTransactions(): List<Transaction> {
+        val str = prefs.getString("transactions", null) ?: return emptyList()
+        return try {
+            val array = JSONArray(str)
+            val list = mutableListOf<Transaction>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    Transaction(
+                        txId = obj.getString("txId"),
+                        address = obj.getString("address"),
+                        amount = obj.getDouble("amount"),
+                        timestamp = obj.getLong("timestamp"),
+                        isSend = obj.getBoolean("isSend"),
+                        isPending = obj.optBoolean("isPending", false)
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }
 
