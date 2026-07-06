@@ -1,3 +1,5 @@
+const pepewLogoUrl = new URL("../../app/src/main/res/drawable/pepew_logo.png", import.meta.url).href;
+
 type WalletHeaderProps = {
   apiState: "CONNECTED" | "READY" | "FAILED";
   versionLabel?: string;
@@ -14,7 +16,7 @@ export function WalletHeader({ apiState, versionLabel = "v1.0-Full" }: WalletHea
     <div className="flex items-center justify-between py-2">
       <div className="flex items-center gap-2">
         <img
-          src="/app/public/pepew_logo.png"
+          src={pepewLogoUrl}
           alt="PEPEW Wallet logo"
           className="h-7 w-7 rounded-full object-cover shadow-sm"
         />
