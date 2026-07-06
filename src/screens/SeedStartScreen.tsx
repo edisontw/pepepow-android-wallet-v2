@@ -1,5 +1,7 @@
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 
+const pepewLogoUrl = new URL("../../app/src/main/res/drawable/pepew_logo.png", import.meta.url).href;
+
 type SeedStartScreenProps = {
   words: string[];
   error?: string;
@@ -13,8 +15,12 @@ export function SeedStartScreen(props: SeedStartScreenProps) {
       <div className="mx-auto max-w-md space-y-4">
         <div className="rounded-3xl bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-700 font-mono text-xl font-black tracking-tight text-white shadow-sm">
-              PW
+            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-green-700 shadow-sm">
+              <img
+                src={pepewLogoUrl}
+                alt="PEPEW Wallet logo"
+                className="h-full w-full object-cover"
+              />
             </div>
             <div>
               <div className="mb-2 font-mono text-sm font-bold tracking-[0.25em] text-green-800">PEPEW WALLET</div>
