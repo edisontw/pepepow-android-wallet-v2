@@ -15,11 +15,11 @@ export function SeedStartScreen(props: SeedStartScreenProps) {
       <div className="mx-auto max-w-md space-y-4">
         <div className="rounded-3xl bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-green-700 shadow-sm">
+            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-sm ring-1 ring-green-100">
               <img
                 src={pepewLogoUrl}
                 alt="PEPEW Wallet logo"
-                className="h-full w-full object-cover"
+                className="h-full w-full object-contain"
               />
             </div>
             <div>
