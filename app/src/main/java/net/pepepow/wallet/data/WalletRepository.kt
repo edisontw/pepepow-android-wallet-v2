@@ -53,6 +53,10 @@ interface WalletRepository {
     suspend fun retryConnection()
     suspend fun refreshWalletData()
     fun setApiState(state: ApiState)
+    fun restoreWalletFromMnemonic(mnemonic: String)
+    fun requestMockFaucet()
+    val isApiMode: StateFlow<Boolean>
+    fun setApiMode(enabled: Boolean)
 }
 
 /**
@@ -93,6 +97,11 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
     private val _isApiLoading = MutableStateFlow(false)
     override val isApiLoading: StateFlow<Boolean> = _isApiLoading.asStateFlow()
 
+    private val _isApiMode = MutableStateFlow(prefs.getBoolean("use_api_mode", false))
+    override val isApiMode: StateFlow<Boolean> = _isApiMode.asStateFlow()
+
+    private val apiClient = PepewApiClient()
+
     override fun createWallet() {
         val words = listOf(
             "pepe", "frog", "wallet", "mock", "phase", "one", "seed", "words",
@@ -122,6 +131,32 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         _apiMessage.value = "Mock wallet ready."
     }
 
+    override fun restoreWalletFromMnemonic(mnemonic: String) {
+        val trimmed = mnemonic.trim().replace("\\s+".toRegex(), " ")
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val hashBytes = digest.digest(trimmed.toByteArray(java.nio.charset.StandardCharsets.UTF_8))
+        val suffix = hashBytes.joinToString("") { "%02x".format(it) }.take(15)
+        val newAddress = "PMockRestoredAddress$suffix"
+        
+        _mnemonic.value = trimmed
+        _address.value = newAddress
+        _balance.value = 0.0
+        _transactions.value = emptyList()
+        _isWalletCreated.value = true
+        
+        prefs.edit().apply {
+            putString("mnemonic", trimmed)
+            putString("address", newAddress)
+            putFloat("balance", 0.0f)
+            putBoolean("wallet_created", true)
+            putString("transactions", JSONArray().toString())
+            apply()
+        }
+        
+        _apiState.value = ApiState.READY
+        _apiMessage.value = "Mock wallet restored."
+    }
+
     override fun confirmBackup() {
         _isWalletCreated.value = true
         prefs.edit().putBoolean("wallet_created", true).apply()
@@ -138,6 +173,25 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         
         _apiState.value = ApiState.READY
         _apiMessage.value = "Mock wallet reset."
+    }
+
+    override fun requestMockFaucet() {
+        val newBalance = _balance.value + 100.0
+        _balance.value = newBalance
+        
+        val faucetTx = Transaction(
+            txId = "mock_faucet_${System.currentTimeMillis()}",
+            address = "PEPEW Faucet",
+            amount = 100.0,
+            timestamp = System.currentTimeMillis(),
+            isSend = false,
+            isPending = false
+        )
+        val updatedList = listOf(faucetTx) + _transactions.value
+        _transactions.value = updatedList
+        
+        prefs.edit().putFloat("balance", newBalance.toFloat()).apply()
+        saveTransactions(updatedList)
     }
 
     override fun sendTx(recipientAddress: String, amount: Double): Boolean {
@@ -165,17 +219,108 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
     }
 
     override suspend fun retryConnection() {
+        if (!_isApiMode.value) {
+            _isApiLoading.value = true
+            _apiState.value = ApiState.CONNECTED
+            _apiMessage.value = "Checking mock connection..."
+            delay(500)
+            _apiState.value = ApiState.READY
+            _apiMessage.value = "Mock wallet mode. No real API request is made."
+            _isApiLoading.value = false
+            return
+        }
+
         _isApiLoading.value = true
         _apiState.value = ApiState.CONNECTED
-        _apiMessage.value = "Mock connection retry..."
-        delay(500)
-        _apiState.value = ApiState.READY
-        _apiMessage.value = "Mock API ready."
-        _isApiLoading.value = false
+        _apiMessage.value = "Checking API health..."
+        try {
+            val health = apiClient.getHealth()
+            val status = apiClient.getStatus()
+            _apiState.value = if (health.ok && status.ok) ApiState.READY else ApiState.CONNECTED
+            _apiMessage.value = buildString {
+                append("API reachable. Status: ${status.status}")
+                status.height?.let { append(". Height: $it") }
+            }
+        } catch (e: Exception) {
+            _apiState.value = ApiState.FAILED
+            _apiMessage.value = when (e) {
+                is PepewApiException -> "API error ${e.statusCode}: ${e.message}"
+                is java.net.SocketTimeoutException -> "API timeout. Please retry."
+                is java.net.UnknownHostException -> "No network or DNS failure. Please retry."
+                else -> e.message ?: "Unable to reach PEPEW Light API."
+            }
+        } finally {
+            _isApiLoading.value = false
+        }
     }
 
     override suspend fun refreshWalletData() {
-        // Mock data is self-contained.
+        if (!_isApiMode.value) {
+            _apiState.value = ApiState.READY
+            _apiMessage.value = "Mock wallet mode. No real API request is made."
+            return
+        }
+
+        val addr = _address.value
+        if (addr.isBlank()) {
+            return
+        }
+
+        _isApiLoading.value = true
+        _apiState.value = ApiState.CONNECTED
+        _apiMessage.value = "Refreshing data from API..."
+
+        try {
+            val summary = apiClient.getAddressSummary(addr)
+            val history = apiClient.getHistory(addr, limit = 50, offset = 0)
+
+            _balance.value = summary.confirmedPepew + summary.unconfirmedPepew
+            _transactions.value = (history.ifEmpty { summary.history }).map { apiTx ->
+                Transaction(
+                    txId = apiTx.txid,
+                    address = apiTx.address,
+                    amount = apiTx.amount,
+                    timestamp = apiTx.timestampMillis,
+                    isSend = apiTx.isSend,
+                    isPending = apiTx.isPending
+                )
+            }
+            _apiState.value = ApiState.READY
+            _apiMessage.value = "Data loaded from PEPEW API."
+
+            // Persist balance and transactions if successful
+            prefs.edit().apply {
+                putFloat("balance", _balance.value.toFloat())
+                val array = JSONArray()
+                for (tx in _transactions.value) {
+                    val obj = JSONObject()
+                    obj.put("txId", tx.txId)
+                    obj.put("address", tx.address)
+                    obj.put("amount", tx.amount)
+                    obj.put("timestamp", tx.timestamp)
+                    obj.put("isSend", tx.isSend)
+                    obj.put("isPending", tx.isPending)
+                    array.put(obj)
+                }
+                putString("transactions", array.toString())
+                apply()
+            }
+        } catch (e: Exception) {
+            _apiState.value = ApiState.FAILED
+            _apiMessage.value = when (e) {
+                is PepewApiException -> "API error ${e.statusCode}: ${e.message}"
+                is java.net.SocketTimeoutException -> "API timeout. Please retry."
+                is java.net.UnknownHostException -> "No network or DNS failure. Please retry."
+                else -> e.message ?: "Unable to reach PEPEW Light API."
+            }
+        } finally {
+            _isApiLoading.value = false
+        }
+    }
+
+    override fun setApiMode(enabled: Boolean) {
+        _isApiMode.value = enabled
+        prefs.edit().putBoolean("use_api_mode", enabled).apply()
     }
 
     override fun setApiState(state: ApiState) {
@@ -278,10 +423,19 @@ class ReadOnlyApiWalletRepository(
     private val _transactions = MutableStateFlow<List<Transaction>>(emptyList())
     override val transactions: StateFlow<List<Transaction>> = _transactions.asStateFlow()
 
+    override val isApiMode: StateFlow<Boolean> = MutableStateFlow(true).asStateFlow()
+    override fun setApiMode(enabled: Boolean) {
+        // No-op for read-only repository
+    }
+
     override fun createWallet() {
         _mnemonic.value = FAKE_PHASE2_MNEMONIC
         _address.value = DEMO_READ_ONLY_ADDRESS
         _apiMessage.value = "Phase 2 read-only wallet created. Address data comes from PEPEW Light API."
+    }
+
+    override fun restoreWalletFromMnemonic(mnemonic: String) {
+        throw java.lang.UnsupportedOperationException("Restore is not supported in read-only API mode")
     }
 
     override fun confirmBackup() {
@@ -296,6 +450,10 @@ class ReadOnlyApiWalletRepository(
         _transactions.value = emptyList()
         _apiState.value = ApiState.CONNECTED
         _apiMessage.value = "Wallet reset. PEPEW Light API read-only mode remains enabled."
+    }
+
+    override fun requestMockFaucet() {
+        // No-op for read-only API mode
     }
 
     override fun sendTx(recipientAddress: String, amount: Double): Boolean {

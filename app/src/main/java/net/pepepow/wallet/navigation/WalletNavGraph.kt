@@ -25,10 +25,15 @@ fun WalletNavGraph(
         startDestination = startDestination
     ) {
         composable(WalletRoutes.Welcome.route) {
-            LogoWelcomeScreen(onNavigateToCreate = {
-                walletViewModel.startCreateWallet()
-                navController.navigate(WalletRoutes.CreateWallet.route)
-            })
+            LogoWelcomeScreen(
+                onNavigateToCreate = {
+                    walletViewModel.startCreateWallet()
+                    navController.navigate(WalletRoutes.CreateWallet.route)
+                },
+                onNavigateToRestore = {
+                    navController.navigate(WalletRoutes.RestoreWallet.route)
+                }
+            )
         }
         composable(WalletRoutes.CreateWallet.route) {
             CreateWalletScreen(viewModel = walletViewModel, onNavigateToBackupWarning = {
@@ -42,6 +47,17 @@ fun WalletNavGraph(
                     popUpTo(WalletRoutes.Welcome.route) { inclusive = true }
                 }
             })
+        }
+        composable(WalletRoutes.RestoreWallet.route) {
+            RestoreWalletScreen(
+                viewModel = walletViewModel,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToDashboard = {
+                    navController.navigate(WalletRoutes.Dashboard.route) {
+                        popUpTo(WalletRoutes.Welcome.route) { inclusive = true }
+                    }
+                }
+            )
         }
         composable(WalletRoutes.Dashboard.route) {
             DashboardScreen(
@@ -64,7 +80,7 @@ fun WalletNavGraph(
         }
         composable(WalletRoutes.Receive.route) {
             ReceiveScreen(
-                viewModel = walletViewModel,
+                walletViewModel = walletViewModel,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -76,7 +92,7 @@ fun WalletNavGraph(
         }
         composable(WalletRoutes.Settings.route) {
             SettingsScreen(
-                viewModel = walletViewModel,
+                walletViewModel = walletViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onResetWallet = {
                     walletViewModel.clearWallet()

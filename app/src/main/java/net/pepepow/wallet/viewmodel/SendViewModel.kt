@@ -27,7 +27,10 @@ class SendViewModel(
         val amount = amountStr.toDoubleOrNull()
         var valid = true
 
-        if (!recipientAddress.startsWith("P")) {
+        if (recipientAddress.isBlank()) {
+            _addressError.value = "Address is required"
+            valid = false
+        } else if (!recipientAddress.startsWith("P")) {
             _addressError.value = "Address must start with 'P'"
             valid = false
         } else if (recipientAddress.length < 20) {
@@ -35,8 +38,11 @@ class SendViewModel(
             valid = false
         }
 
-        if (amount == null || amount <= 0) {
-            _amountError.value = "Please enter a valid amount"
+        if (amountStr.isBlank()) {
+            _amountError.value = "Amount is required"
+            valid = false
+        } else if (amount == null || amount <= 0) {
+            _amountError.value = "Please enter a valid amount greater than 0"
             valid = false
         } else if (amount + 0.001 > repository.balance.value) {
             _amountError.value = "Insufficient balance (Need amount + 0.001 fee)"
@@ -46,7 +52,7 @@ class SendViewModel(
         if (valid && amount != null) {
             val success = repository.sendTx(recipientAddress, amount)
             if (!success) {
-                _amountError.value = "Read-only API mode: sending starts in Phase 3."
+                _amountError.value = "Send failed: insufficient balance or invalid mock state"
             }
             _sendSuccess.value = success
         } else {

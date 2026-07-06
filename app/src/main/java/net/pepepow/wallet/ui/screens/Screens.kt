@@ -1,6 +1,7 @@
 package net.pepepow.wallet.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -423,8 +424,10 @@ fun DashboardScreen(
     onNavigateToApiStatus: () -> Unit
 ) {
     val balance by walletViewModel.balance.collectAsState()
+    val address by walletViewModel.address.collectAsState()
     val apiState by apiStatusViewModel.apiState.collectAsState()
     val transactions by historyViewModel.transactions.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -441,6 +444,26 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    val isApiLoading by walletViewModel.isApiLoading.collectAsState()
+                    IconButton(
+                        onClick = { walletViewModel.refreshWalletData() },
+                        enabled = !isApiLoading
+                    ) {
+                        if (isApiLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = PepepowPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = Color.DarkGray
+                            )
+                        }
+                    }
+
                     IconButton(onClick = onNavigateToApiStatus) {
                         val color = when (apiState) {
                             ApiState.READY, ApiState.CONNECTED -> Color(0xFF4CAF50)
@@ -471,6 +494,44 @@ fun DashboardScreen(
                 .padding(paddingValues)
                 .padding(16.dp)
         ) {
+            val apiMessage by walletViewModel.apiMessage.collectAsState()
+            if (apiState == ApiState.FAILED) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Error",
+                            tint = Color(0xFFC62828),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Unable to refresh balance",
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFC62828),
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = apiMessage,
+                                color = Color(0xFFC62828),
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+
             // Balance Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = PepepowPrimary),
@@ -507,6 +568,38 @@ fun DashboardScreen(
                         color = PepepowSecondary,
                         fontSize = 14.sp
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                            .clickable {
+                                if (address.isNotEmpty()) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("PEPEW Address", address)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy Address",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (address.length > 20) address.take(10) + "..." + address.takeLast(8) else address,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
 
@@ -583,6 +676,17 @@ fun DashboardScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            val isApiMode by walletViewModel.isApiMode.collectAsState()
+            val modeText = if (isApiMode) "Read-only API mode" else "Prototype mode: mock wallet data only"
+            Text(
+                text = modeText,
+                color = Color.Gray,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
@@ -679,8 +783,13 @@ fun TxItem(tx: Transaction) {
                     color = if (tx.isSend) Color.Black else PepepowPrimary,
                     fontFamily = FontFamily.Monospace
                 )
+                val displayAddress = if (tx.address.length > 18) {
+                    tx.address.take(12) + "..." + tx.address.takeLast(6)
+                } else {
+                    tx.address
+                }
                 Text(
-                    text = tx.address.take(12) + "..." + tx.address.takeLast(6),
+                    text = displayAddress,
                     fontSize = 10.sp,
                     color = Color.LightGray
                 )
@@ -864,7 +973,7 @@ fun ReceiveScreen(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "This address only accepts PEPEW. Sending any other cryptocurrency will result in permanent loss.",
+                        text = "Only send PEPEW to this address. Sending any other cryptocurrency will result in permanent loss.",
                         fontSize = 11.sp,
                         color = PepepowPrimary,
                         lineHeight = 14.sp
@@ -1048,7 +1157,7 @@ fun HistoryScreen(
         ) {
             if (transactions.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No transactions found", color = Color.Gray)
+                    Text("No transactions yet", color = Color.Gray)
                 }
             } else {
                 LazyColumn(
@@ -1072,7 +1181,35 @@ fun SettingsScreen(
     onResetWallet: () -> Unit
 ) {
     var showSeedPrompt by remember { mutableStateOf(false) }
+    var isMnemonicRevealed by remember { mutableStateOf(false) }
+    var showResetConfirm by remember { mutableStateOf(false) }
+    
     val mnemonic by walletViewModel.mnemonic.collectAsState()
+    val isApiMode by walletViewModel.isApiMode.collectAsState()
+    val context = LocalContext.current
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text("Reset Wallet", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure? This will remove the mock wallet from this device.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResetConfirm = false
+                        onResetWallet()
+                    }
+                ) {
+                    Text("CONFIRM RESET", color = Color(0xFFC62828), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) {
+                    Text("CANCEL", color = Color.Gray, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -1099,7 +1236,40 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Section 1: Security Info
+                // Section 1: Wallet Information
+                Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Wallet Information",
+                            fontWeight = FontWeight.Bold,
+                            color = PepepowPrimary,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Wallet Mode", fontSize = 14.sp)
+                            Text(
+                                text = if (isApiMode) "Read-only API" else "Mock / Prototype",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Gray
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Non-Custodial", fontSize = 14.sp)
+                            Text("Yes (Keys stay local)", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        }
+                    }
+                }
+
+                // Section 2: Security & Backup
                 Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
@@ -1113,7 +1283,12 @@ fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { showSeedPrompt = !showSeedPrompt }
+                                .clickable { 
+                                    showSeedPrompt = !showSeedPrompt
+                                    if (!showSeedPrompt) {
+                                        isMnemonicRevealed = false 
+                                    }
+                                }
                                 .padding(vertical = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
@@ -1128,20 +1303,74 @@ fun SettingsScreen(
 
                         if (showSeedPrompt) {
                             Spacer(modifier = Modifier.height(8.dp))
-                            Card(colors = CardDefaults.cardColors(containerColor = PepepowBackground)) {
-                                Text(
-                                    text = mnemonic ?: "No mnemonic available",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(12.dp),
-                                    textAlign = TextAlign.Center
-                                )
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Warning,
+                                            contentDescription = "Warning",
+                                            tint = Color(0xFFE65100),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            "Security Warning",
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFE65100),
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "Ensure no one is looking at your screen. Anyone with this mnemonic phrase can access all your mock PEPEW.",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFFE65100),
+                                        lineHeight = 14.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    
+                                    if (!isMnemonicRevealed) {
+                                        Button(
+                                            onClick = { isMnemonicRevealed = true },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth().height(36.dp)
+                                        ) {
+                                            Text("REVEAL MNEMONIC", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    } else {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = PepepowSurface),
+                                            border = BorderStroke(1.dp, Color(0xFFE65100)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = mnemonic ?: "No mnemonic available",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 12.sp,
+                                                color = Color.Black,
+                                                modifier = Modifier.padding(12.dp),
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        TextButton(
+                                            onClick = { isMnemonicRevealed = false },
+                                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                                        ) {
+                                            Text("HIDE MNEMONIC", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
-                // Section 2: Node Details
+                // Section 3: Node Details
                 Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
@@ -1154,7 +1383,8 @@ fun SettingsScreen(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("API Endpoint", fontSize = 14.sp)
                             Text(
@@ -1164,13 +1394,77 @@ fun SettingsScreen(
                                 color = Color.Gray
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Use Read-only API", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Text(
+                                    "Fetch real blockchain balance and history.",
+                                    fontSize = 11.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                            Switch(
+                                checked = isApiMode,
+                                onCheckedChange = { walletViewModel.setApiMode(it) },
+                                colors = SwitchDefaults.colors(checkedThumbColor = PepepowPrimary)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Warning: Only public address data is sent to the API. Recovery phrase never leaves this device.",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+
+                // Section 4: Developer Tools (Prototype Only Faucet)
+                Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Developer Tools (Prototype Only)",
+                            fontWeight = FontWeight.Bold,
+                            color = PepepowPrimary,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (isApiMode) "Mock faucet is disabled in API mode. Fetching balance from API." else "Use the mock faucet to add test PEPEW to your wallet balance.",
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                walletViewModel.requestMockFaucet()
+                                Toast.makeText(context, "Added 100.0000 PEPEW (Mock)", Toast.LENGTH_SHORT).show()
+                            },
+                            enabled = !isApiMode,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PepepowPrimary,
+                                disabledContainerColor = Color.LightGray
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().height(40.dp)
+                        ) {
+                            Text("GET 100 MOCK PEPEW", fontWeight = FontWeight.Bold, color = if (isApiMode) Color.DarkGray else Color.White)
+                        }
                     }
                 }
             }
 
             // Reset Wallet Button
             Button(
-                onClick = onResetWallet,
+                onClick = { showResetConfirm = true },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
@@ -1191,6 +1485,9 @@ fun ApiStatusScreen(
     onNavigateBack: () -> Unit
 ) {
     val apiState by apiStatusViewModel.apiState.collectAsState()
+    val apiMessage by apiStatusViewModel.apiMessage.collectAsState()
+    val isApiLoading by apiStatusViewModel.isApiLoading.collectAsState()
+    val isApiMode by walletViewModel.isApiMode.collectAsState()
 
     Scaffold(
         topBar = {
@@ -1264,6 +1561,21 @@ fun ApiStatusScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                Text(
+                    text = "API Mode:",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+                Text(
+                    text = if (isApiMode) "Read-only API" else "Mock / Prototype",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PepepowPrimary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 val stateLabel = when (apiState) {
                     ApiState.CONNECTED -> "CONNECTED"
                     ApiState.READY -> "READY"
@@ -1295,21 +1607,51 @@ fun ApiStatusScreen(
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Toggle for failure simulation
+                Text(
+                    text = "Last Check Result:",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+                Text(
+                    text = apiMessage,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.DarkGray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp).padding(top = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "API provides blockchain data. Keys stay local.",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.DarkGray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Retry Button
                 Button(
-                    onClick = {
-                        if (apiState == ApiState.FAILED) {
-                            apiStatusViewModel.retryApiConnection()
-                        } else {
-                            apiStatusViewModel.simulateApiFailure()
-                        }
-                    },
+                    onClick = { apiStatusViewModel.retryApiConnection() },
+                    enabled = !isApiLoading,
                     colors = ButtonDefaults.buttonColors(containerColor = PepepowPrimary),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(if (apiState == ApiState.FAILED) "RETRY CONNECTION" else "SIMULATE DISCONNECT")
+                    if (isApiLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text("RETRY CONNECTION")
                 }
             }
 
@@ -1323,3 +1665,103 @@ fun ApiStatusScreen(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RestoreWalletScreen(
+    viewModel: WalletViewModel,
+    onNavigateBack: () -> Unit,
+    onNavigateToDashboard: () -> Unit
+) {
+    var mnemonicInput by remember { mutableStateOf("") }
+    val restoreError by viewModel.restoreError.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.clearRestoreError()
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Restore Wallet", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = PepepowBackground)
+            )
+        },
+        containerColor = PepepowBackground
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Enter Recovery Phrase",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PepepowPrimary
+                )
+
+                Text(
+                    text = "Please enter your 12-word mnemonic seed phrase in the correct order to restore your PEPEW wallet.",
+                    fontSize = 14.sp,
+                    color = Color.DarkGray
+                )
+
+                OutlinedTextField(
+                    value = mnemonicInput,
+                    onValueChange = {
+                        mnemonicInput = it
+                        viewModel.clearRestoreError()
+                    },
+                    label = { Text("Mnemonic Phrase") },
+                    placeholder = { Text("Enter your 12-word recovery phrase") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp),
+                    isError = restoreError != null,
+                    supportingText = {
+                        if (restoreError != null) {
+                            Text(restoreError!!, color = Color.Red)
+                        } else {
+                            Text("12 words separated by spaces", color = Color.Gray)
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PepepowPrimary,
+                        focusedLabelColor = PepepowPrimary
+                    ),
+                    maxLines = 5,
+                    singleLine = false
+                )
+            }
+
+            Button(
+                onClick = {
+                    val success = viewModel.restoreWallet(mnemonicInput)
+                    if (success) {
+                        onNavigateToDashboard()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = PepepowPrimary),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Text("RESTORE WALLET", fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+    }
+}
+

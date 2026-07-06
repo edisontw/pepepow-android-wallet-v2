@@ -1,5 +1,6 @@
 package net.pepepow.wallet.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,7 +38,10 @@ import androidx.compose.ui.unit.sp
 import net.pepepow.wallet.R
 
 @Composable
-fun LogoWelcomeScreen(onNavigateToCreate: () -> Unit) {
+fun LogoWelcomeScreen(
+    onNavigateToCreate: () -> Unit,
+    onNavigateToRestore: () -> Unit
+) {
     Scaffold(
         containerColor = PepepowBackground
     ) { paddingValues ->
@@ -138,6 +143,20 @@ fun LogoWelcomeScreen(onNavigateToCreate: () -> Unit) {
                         .height(50.dp)
                 ) {
                     Text("CREATE NEW WALLET", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = onNavigateToRestore,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = PepepowPrimary),
+                    border = BorderStroke(1.5.dp, PepepowPrimary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                ) {
+                    Text("RESTORE EXISTING WALLET", fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
