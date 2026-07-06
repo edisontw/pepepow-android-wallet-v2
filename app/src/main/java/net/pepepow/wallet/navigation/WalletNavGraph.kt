@@ -25,7 +25,7 @@ fun WalletNavGraph(
         startDestination = startDestination
     ) {
         composable(WalletRoutes.Welcome.route) {
-            WelcomeScreen(onNavigateToCreate = {
+            LogoWelcomeScreen(onNavigateToCreate = {
                 walletViewModel.startCreateWallet()
                 navController.navigate(WalletRoutes.CreateWallet.route)
             })
