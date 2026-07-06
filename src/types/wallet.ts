@@ -1,4 +1,4 @@
-export type Screen = "seed" | "restore" | "dashboard" | "receive" | "send" | "history" | "settings";
+export type Screen = "seed" | "backup" | "restore" | "dashboard" | "receive" | "send" | "history" | "settings";
 
 export type ApiState = "CONNECTED" | "READY" | "FAILED";
 
