@@ -27,15 +27,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Generate Gradle wrapper jar if missing
+        shell: bash
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            gradle wrapper --gradle-version 8.0.2 --distribution-type bin
+          fi
+
       - name: Build debug APK
         shell: bash
         run: |
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-            ./gradlew :app:assembleDebug
-          else
-            gradle :app:assembleDebug
-          fi
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
