@@ -15,11 +15,13 @@ export function WalletHeader({ apiState, versionLabel = "v1.0-Full" }: WalletHea
   return (
     <div className="flex items-center justify-between py-2">
       <div className="flex items-center gap-2">
-        <img
-          src={pepewLogoUrl}
-          alt="PEPEW Wallet logo"
-          className="h-7 w-7 rounded-full object-cover shadow-sm"
-        />
+        <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-white p-0.5 shadow-sm ring-1 ring-green-100">
+          <img
+            src={pepewLogoUrl}
+            alt="PEPEW Wallet logo"
+            className="h-full w-full object-contain"
+          />
+        </div>
         <div className="font-mono text-xs font-black tracking-widest text-green-800">
           PEPEW WALLET <span className="rounded bg-green-50 px-2 py-1 text-[10px]">{versionLabel}</span>
         </div>
