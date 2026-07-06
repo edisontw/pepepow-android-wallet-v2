@@ -64,7 +64,7 @@ fun WalletNavGraph(
         }
         composable(WalletRoutes.Receive.route) {
             ReceiveScreen(
-                walletViewModel = walletViewModel,
+                viewModel = walletViewModel,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -76,7 +76,7 @@ fun WalletNavGraph(
         }
         composable(WalletRoutes.Settings.route) {
             SettingsScreen(
-                walletViewModel = walletViewModel,
+                viewModel = walletViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onResetWallet = {
                     walletViewModel.clearWallet()
