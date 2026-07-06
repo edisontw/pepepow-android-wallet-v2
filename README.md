@@ -74,3 +74,19 @@ The logo resource is:
 ```text
 app/src/main/res/drawable/pepew_logo.png
 ```
+
+## Android Development & Testing
+
+The Android project is located in the `app` folder.
+
+To build the debug APK:
+```powershell
+.\gradlew.bat :app:assembleDebug
+```
+
+To run unit tests:
+```powershell
+.\gradlew.bat :app:testDebugUnitTest
+```
+
+For detailed implementation status, see [`docs/wallet-implementation-status.md`](./docs/wallet-implementation-status.md).

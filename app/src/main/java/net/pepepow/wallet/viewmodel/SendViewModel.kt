@@ -1,10 +1,13 @@
 package net.pepepow.wallet.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import net.pepepow.wallet.data.WalletRepository
+import net.pepepow.wallet.domain.address.AddressValidator
 
 class SendViewModel(
     private val repository: WalletRepository
@@ -30,11 +33,8 @@ class SendViewModel(
         if (recipientAddress.isBlank()) {
             _addressError.value = "Address is required"
             valid = false
-        } else if (!recipientAddress.startsWith("P")) {
-            _addressError.value = "Address must start with 'P'"
-            valid = false
-        } else if (recipientAddress.length < 20) {
-            _addressError.value = "Address is too short"
+        } else if (!AddressValidator.isValidAddress(recipientAddress)) {
+            _addressError.value = "Invalid PEPEW address format"
             valid = false
         }
 
@@ -50,11 +50,13 @@ class SendViewModel(
         }
 
         if (valid && amount != null) {
-            val success = repository.sendTx(recipientAddress, amount)
-            if (!success) {
-                _amountError.value = "Send failed: insufficient balance or invalid mock state"
+            viewModelScope.launch {
+                val success = repository.sendTx(recipientAddress, amount)
+                if (!success) {
+                    _amountError.value = "Send failed: check connection or balance"
+                }
+                _sendSuccess.value = success
             }
-            _sendSuccess.value = success
         } else {
             _sendSuccess.value = false
         }

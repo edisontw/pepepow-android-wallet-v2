@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import net.pepepow.wallet.data.FakeWalletRepository
+import net.pepepow.wallet.data.RealWalletRepository
 import net.pepepow.wallet.navigation.WalletNavGraph
 import net.pepepow.wallet.viewmodel.*
 import net.pepepow.wallet.ui.theme.PepepowWalletTheme
@@ -17,7 +18,7 @@ import net.pepepow.wallet.ui.theme.PepepowWalletTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val repository = FakeWalletRepository(applicationContext)
+        val repository = RealWalletRepository(applicationContext)
 
         setContent {
             PepepowWalletTheme {

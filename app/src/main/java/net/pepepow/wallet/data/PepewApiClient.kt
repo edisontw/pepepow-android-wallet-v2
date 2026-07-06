@@ -12,19 +12,20 @@ import java.net.URLEncoder
 import java.util.Locale
 
 /**
- * Read-only PEPEW Light API client for Phase 2.
+ * Real PEPEW Light API client.
  *
  * Security boundary:
- * - This client only performs public read requests.
- * - It does not send mnemonic, seed, private key, WIF, or signed transaction data.
- * - Broadcast is intentionally unsupported in the Android Phase 2 prototype.
+ * - This client only performs public read/write requests.
+ * - It never receives mnemonic, seed, private key, or WIF.
+ * - For broadcast, it only receives the signed raw transaction hex.
  */
 class PepewApiClient(
     val baseUrl: String = "https://light.pepepow.net/",
-    private val timeoutMs: Int = 10_000
+    private val timeoutMs: Int = 15_000
 ) {
     suspend fun getHealth(): ApiHealth = withContext(Dispatchers.IO) {
-        val json = getJson("/api/health")
+        val body = requestHttp("/api/health")
+        val json = JSONObject(body)
         ApiHealth(
             ok = json.optBoolean("ok", true),
             status = json.optString("status", "unknown")
@@ -32,7 +33,8 @@ class PepewApiClient(
     }
 
     suspend fun getStatus(): ApiStatusResponse = withContext(Dispatchers.IO) {
-        val json = getJson("/api/status")
+        val body = requestHttp("/api/status")
+        val json = JSONObject(body)
         ApiStatusResponse(
             ok = !json.optBoolean("error", false),
             status = json.optString("status", json.optString("state", "unknown")),
@@ -42,32 +44,118 @@ class PepewApiClient(
 
     suspend fun getAddressSummary(address: String): ApiAddressSummary = withContext(Dispatchers.IO) {
         val safeAddress = encodePathSegment(address)
-        val json = getJson("/api/wallet/address/$safeAddress")
+        val body = requestHttp("/api/wallet/address/$safeAddress")
+        val json = JSONObject(body)
         parseAddressSummary(json)
     }
 
     suspend fun getHistory(address: String, limit: Int = 50, offset: Int = 0): List<ApiTransaction> = withContext(Dispatchers.IO) {
         val safeAddress = encodePathSegment(address)
-        val json = getJson("/api/wallet/history/$safeAddress?limit=$limit&offset=$offset")
-        val historyArray = when {
-            json.has("history") -> json.optJSONArray("history") ?: JSONArray()
-            json.has("transactions") -> json.optJSONArray("transactions") ?: JSONArray()
-            json.has("items") -> json.optJSONArray("items") ?: JSONArray()
-            else -> JSONArray()
+        val body = requestHttp("/api/wallet/history/$safeAddress?limit=$limit&offset=$offset")
+        
+        val historyArray = if (body.trim().startsWith("[")) {
+            JSONArray(body)
+        } else {
+            val json = JSONObject(body)
+            when {
+                json.has("history") -> json.optJSONArray("history") ?: JSONArray()
+                json.has("transactions") -> json.optJSONArray("transactions") ?: JSONArray()
+                json.has("items") -> json.optJSONArray("items") ?: JSONArray()
+                else -> JSONArray()
+            }
         }
         parseHistory(historyArray)
     }
 
+    suspend fun getUtxos(address: String): List<ApiUtxo> = withContext(Dispatchers.IO) {
+        val safeAddress = encodePathSegment(address)
+        val body = requestHttp("/api/wallet/utxo/$safeAddress?fresh=1&t=${System.currentTimeMillis()}")
+        
+        val utxoArray = if (body.trim().startsWith("[")) {
+            JSONArray(body)
+        } else {
+            val json = JSONObject(body)
+            when {
+                json.has("utxos") -> json.optJSONArray("utxos")
+                json.has("data") -> json.optJSONArray("data")
+                else -> null
+            } ?: JSONArray()
+        }
+
+        val result = mutableListOf<ApiUtxo>()
+        for (i in 0 until utxoArray.length()) {
+            val item = utxoArray.optJSONObject(i) ?: continue
+            val txid = item.optString("txid", item.optString("tx_hash", item.optString("hash", ""))).trim()
+            if (txid.length != 64) continue
+
+            val vout = when {
+                item.has("vout") -> item.optInt("vout", -1)
+                item.has("tx_pos") -> item.optInt("tx_pos", -1)
+                item.has("index") -> item.optInt("index", -1)
+                item.has("n") -> item.optInt("n", -1)
+                else -> -1
+            }
+            if (vout < 0) continue
+
+            val satoshis = atomsFromUtxo(item)
+            if (satoshis <= 0) continue
+
+            val scriptPubKey = item.optString("scriptPubKey", 
+                item.optString("script_pub_key", 
+                    item.optString("script_pubkey", 
+                        item.optString("script", "")))).trim()
+
+            result.add(ApiUtxo(txid, vout, satoshis, scriptPubKey))
+        }
+        result
+    }
+
     suspend fun broadcastTransaction(hex: String): String = withContext(Dispatchers.IO) {
-        throw UnsupportedOperationException(
-            "Broadcast is disabled in Phase 2. Android wallet must not broadcast until local signing is implemented."
-        )
+        val postBody = JSONObject().put("raw_tx", hex).toString()
+        val body = requestHttp("/api/wallet/broadcast", method = "POST", postBody = postBody)
+        
+        val json = JSONObject(body)
+        if (json.has("error") && !json.isNull("error")) {
+            val errorObj = json.optJSONObject("error")
+            val errMsg = errorObj?.optString("message") 
+                ?: json.optString("error") 
+                ?: json.optString("message")
+            throw PepewApiException(400, errMsg)
+        }
+        val txid = json.optString("txid", json.optString("tx_hash", json.optString("result", json.optString("data", ""))))
+        if (txid.trim().length != 64) {
+            throw PepewApiException(500, "Invalid txid returned by broadcast: $txid")
+        }
+        txid.trim()
     }
 
     suspend fun checkHealth(): Boolean = try {
         getHealth().ok
     } catch (_: Exception) {
         false
+    }
+
+    private fun atomsFromUtxo(u: JSONObject): Long {
+        val explicitAtoms = when {
+            u.has("satoshis") && !u.isNull("satoshis") -> u.optLongOrNull("satoshis")
+            u.has("value_atoms") && !u.isNull("value_atoms") -> u.optLongOrNull("value_atoms")
+            u.has("amount_atoms") && !u.isNull("amount_atoms") -> u.optLongOrNull("amount_atoms")
+            u.has("atoms") && !u.isNull("atoms") -> u.optLongOrNull("atoms")
+            u.has("value_sats") && !u.isNull("value_sats") -> u.optLongOrNull("value_sats")
+            else -> null
+        }
+        if (explicitAtoms != null) {
+            return explicitAtoms
+        }
+        val valueStr = when {
+            u.has("value") && !u.isNull("value") -> u.optString("value")
+            u.has("amount") && !u.isNull("amount") -> u.optString("amount")
+            u.has("value_pepew") && !u.isNull("value_pepew") -> u.optString("value_pepew")
+            u.has("amount_pepew") && !u.isNull("amount_pepew") -> u.optString("amount_pepew")
+            else -> "0"
+        }
+        val valueDouble = valueStr.replace(",", "").trim().toDoubleOrNull() ?: 0.0
+        return Math.round(valueDouble * 1e8)
     }
 
     private fun parseAddressSummary(json: JSONObject): ApiAddressSummary {
@@ -107,12 +195,9 @@ class PepewApiClient(
 
             val amount = firstDouble(
                 item,
-                listOf("amount_pepew", "value_pepew", "delta_pepew", "amount", "value", "balance_delta")
+                listOf("address_delta_pepew", "delta_pepew", "balance_delta_pepew", "amount_pepew", "value_pepew", "delta_pepew", "amount", "value", "balance_delta")
             )
 
-            // Some ElectrumX history entries only include txid/height. They do not contain
-            // wallet delta data, so rendering them as received +NaN or fake 0.0 is misleading.
-            // Skip those compact entries until the API provides a confirmed amount field.
             if (amount == null) continue
 
             val timestampSeconds = item.optLongOrNull("timestamp") ?: item.optLongOrNull("time")
@@ -136,19 +221,28 @@ class PepewApiClient(
         return result
     }
 
-    private fun getJson(path: String): JSONObject {
+    private fun requestHttp(path: String, method: String = "GET", postBody: String? = null): String {
         val normalizedBase = baseUrl.trimEnd('/')
         val normalizedPath = if (path.startsWith("/")) path else "/$path"
         val url = URL(normalizedBase + normalizedPath)
         val connection = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
+            requestMethod = method
             connectTimeout = timeoutMs
             readTimeout = timeoutMs
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "PEPEW-Android-Wallet-Phase2")
+            setRequestProperty("User-Agent", "PEPEW-Android-Wallet-V2")
+            if (postBody != null) {
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
         }
 
         try {
+            if (postBody != null) {
+                connection.outputStream.use { os ->
+                    os.write(postBody.toByteArray(Charsets.UTF_8))
+                }
+            }
             val statusCode = connection.responseCode
             val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
             val body = BufferedReader(InputStreamReader(stream)).use { reader ->
@@ -158,7 +252,7 @@ class PepewApiClient(
                 val message = parseApiError(body) ?: "HTTP $statusCode"
                 throw PepewApiException(statusCode, message)
             }
-            return JSONObject(body)
+            return body
         } finally {
             connection.disconnect()
         }
@@ -181,7 +275,7 @@ class PepewApiClient(
         String.format(Locale.US, "%.8f", value / 100_000_000.0)
 
     private fun String.toSafeDouble(): Double {
-        val parsed = replace(",", "").trim().toDoubleOrNull() ?: return 0.0
+        val parsed = replace(",", "").trim().toDoubleOrNull() ?: 0.0
         return if (parsed.isNaN() || parsed.isInfinite()) 0.0 else parsed
     }
 
@@ -198,6 +292,13 @@ class PepewApiClient(
     private fun JSONObject.optLongOrNull(key: String): Long? =
         if (has(key) && !isNull(key)) optLong(key) else null
 }
+
+data class ApiUtxo(
+    val txid: String,
+    val vout: Int,
+    val satoshis: Long,
+    val scriptPubKey: String
+)
 
 data class ApiHealth(
     val ok: Boolean,

@@ -64,6 +64,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.google.zxing:core:3.5.3")
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.75")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

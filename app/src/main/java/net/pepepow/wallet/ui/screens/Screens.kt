@@ -1402,62 +1402,23 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Use Read-only API", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                                Text(
-                                    "Fetch real blockchain balance and history.",
-                                    fontSize = 11.sp,
-                                    color = Color.Gray
-                                )
-                            }
-                            Switch(
-                                checked = isApiMode,
-                                onCheckedChange = { walletViewModel.setApiMode(it) },
-                                colors = SwitchDefaults.colors(checkedThumbColor = PepepowPrimary)
+                            Text("Wallet Mode", fontSize = 14.sp)
+                            Text(
+                                "Non-custodial",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PepepowPrimary
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+
                         Text(
-                            text = "Warning: Only public address data is sent to the API. Recovery phrase never leaves this device.",
+                            text = "Security Warning: Only public address data, UTXOs, and signed transactions are sent to the API. Your recovery phrase and private keys never leave this device.",
                             fontSize = 11.sp,
-                            color = Color.Gray,
+                            color = Color(0xFFE53935),
                             lineHeight = 14.sp
                         )
-                    }
-                }
-
-                // Section 4: Developer Tools (Prototype Only Faucet)
-                Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "Developer Tools (Prototype Only)",
-                            fontWeight = FontWeight.Bold,
-                            color = PepepowPrimary,
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = if (isApiMode) "Mock faucet is disabled in API mode. Fetching balance from API." else "Use the mock faucet to add test PEPEW to your wallet balance.",
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                walletViewModel.requestMockFaucet()
-                                Toast.makeText(context, "Added 100.0000 PEPEW (Mock)", Toast.LENGTH_SHORT).show()
-                            },
-                            enabled = !isApiMode,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = PepepowPrimary,
-                                disabledContainerColor = Color.LightGray
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().height(40.dp)
-                        ) {
-                            Text("GET 100 MOCK PEPEW", fontWeight = FontWeight.Bold, color = if (isApiMode) Color.DarkGray else Color.White)
-                        }
                     }
                 }
             }
