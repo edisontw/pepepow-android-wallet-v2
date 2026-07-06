@@ -174,16 +174,14 @@ function parseApiHistory(items: unknown, address: string): Tx[] {
     const deltaIsCoin = item.address_delta_pepew !== undefined || item.delta_pepew !== undefined || item.balance_delta_pepew !== undefined;
     const delta = hasDelta ? pepewFromApiAmount(deltaRaw, deltaIsCoin) : 0;
     const direction = safeText(item.direction).toLowerCase();
-    const isSend = direction.includes("sent") || direction.includes("send") || delta < 0;
     const timestamp = item.timestamp ?? item.time ?? item.block_time ?? item.blockTime ?? Date.now();
-    
     const kind = classifyTransactionForAddress(item, address, delta);
     const isSelfTransfer = kind === "self";
     const classifiedIsSend = kind === "sent";
 
     return [{
       id,
-      amount: Math.abs(delta),
+      amount: isSelfTransfer ? 0 : Math.abs(delta),
       address: safeText(item.address ?? address),
       timestamp: normalizeTimestamp(timestamp),
       isSend: classifiedIsSend,
@@ -222,6 +220,7 @@ function TxCard({ tx }: { tx: Tx }) {
         ? "Sent PEPEW"
         : "Received PEPEW";
   const sign = tx.isUnknownAmount || tx.isSelfTransfer ? "" : tx.isSend ? "-" : "+";
+  const displayAmount = tx.isSelfTransfer ? 0 : tx.amount;
   return (
     <div className="flex items-center justify-between rounded-2xl border border-green-50 bg-white p-4 shadow-sm">
       <div className="flex items-center gap-3">
@@ -235,7 +234,7 @@ function TxCard({ tx }: { tx: Tx }) {
         </div>
       </div>
       <div className="text-right font-mono text-sm font-bold text-green-700">
-        {tx.isUnknownAmount ? "—" : `${sign}${formatAmount(tx.amount, 2)}`}
+        {tx.isUnknownAmount ? "—" : `${sign}${formatAmount(displayAmount, 2)}`}
       </div>
     </div>
   );
@@ -475,7 +474,7 @@ export default function App() {
     const isSelfTransfer = recipient.trim() === activeAddress;
     const optimisticTx: Tx = {
       id: `local-${Date.now()}`,
-      amount,
+      amount: isSelfTransfer ? 0 : amount,
       address: recipient.trim(),
       timestamp: Date.now(),
       isSend: !isSelfTransfer,
@@ -588,7 +587,7 @@ export default function App() {
       {screen === "dashboard" && (
         <main className="mx-auto max-w-md space-y-4 p-3">
           <div className="flex items-center justify-between py-2">
-            <div className="font-mono text-xs font-black tracking-widest text-green-800">PEPEW WALLET <span className="rounded bg-green-50 px-2 py-1 text-[10px]">v1.0</span></div>
+            <div className="flex items-center gap-2 font-mono text-xs font-black tracking-widest text-green-800"><div className="flex h-7 w-7 items-center justify-center rounded-full bg-green-700 text-[10px] font-black tracking-tight text-white">PW</div><span>PEPEW WALLET</span><span className="rounded bg-green-50 px-2 py-1 text-[10px]">v1.0</span></div>
             <div className={`rounded-full px-4 py-2 font-mono text-xs font-bold shadow-sm ${apiState === "READY" ? "bg-white text-green-700" : apiState === "FAILED" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{apiState}</div>
           </div>
           <section className="overflow-hidden rounded-3xl bg-green-700 p-6 text-white shadow-lg">
