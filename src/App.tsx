@@ -320,7 +320,7 @@ export default function App() {
       const utxoData = await utxoRes.json().catch(() => ({}));
       const historyItems = extractArray(history?.history ?? history?.transactions ?? summary?.history ?? []);
       const mempoolItems = extractArray(history?.mempool ?? []);
-      const confirmedRaw = summary?.balance?.confirmed_pepew ?? summary?.balance?.total_pepew ?? summary?.confirmed_pepew ?? summary?.confirmed_balance ?? summary?.balance?.confirmed ?? summary?.[...];
+      const confirmedRaw = summary?.balance?.confirmed_pepew ?? summary?.balance?.total_pepew ?? summary?.confirmed_pepew ?? summary?.confirmed_balance ?? summary?.balance?.confirmed ?? summary?.balance ?? 0;
       const unconfirmedRaw = summary?.balance?.unconfirmed_pepew ?? summary?.unconfirmed_pepew ?? summary?.mempool_balance ?? 0;
       const confirmed = pepewFromApiAmount(confirmedRaw, summary?.balance?.confirmed_pepew !== undefined || summary?.balance?.total_pepew !== undefined || summary?.confirmed_pepew !== undefined);
       const unconfirmed = pepewFromApiAmount(unconfirmedRaw, summary?.balance?.unconfirmed_pepew !== undefined || summary?.unconfirmed_pepew !== undefined);
@@ -331,7 +331,7 @@ export default function App() {
       setTxs(options?.keepLocal ? mergeTxs(apiTxs, localTxs) : apiTxs);
       setUtxoCount(parsedUtxos.length);
       setUtxoTotal(utxoBalance);
-      setHeight(safeText(status?.height ?? status?.block_height ?? status?.data?.height ?? status?.electrumx?.height ?? status?.server?.height ?? status?.chain?.height ?? status?.tip?.height ?? "[...]"));
+      setHeight(safeText(status?.height ?? status?.block_height ?? status?.data?.height ?? status?.electrumx?.height ?? status?.server?.height ?? status?.chain?.height ?? status?.tip?.height ?? "-"));
       setLastRefreshLabel(new Date(now).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
       setApiState(statusRes.ok && summaryRes.ok ? "READY" : "FAILED");
       setApiMessage(apiTxs.length > 0 ? `API ready. ${apiTxs.length} history entries, ${parsedUtxos.length} UTXOs.` : `API ready. ${parsedUtxos.length} UTXOs.`);
