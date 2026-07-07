@@ -126,6 +126,11 @@ class RealWalletRepository(
     private var consecutiveRefreshFailures = 0
     private var hasLoadedSuccessfully = false
 
+    private companion object {
+        const val ATOMS_PER_PEPEW = 100_000_000.0
+        const val DEFAULT_FEE_ATOMS = 100_000L
+    }
+
     // Real wallet is always in API mode
     override val isApiMode: StateFlow<Boolean> = MutableStateFlow(true).asStateFlow()
 
@@ -195,6 +200,18 @@ class RealWalletRepository(
         _apiMessage.value = "Wallet reset."
     }
 
+    private fun Transaction.localPendingSpend(): Double {
+        if (!isPending || !isSend) return 0.0
+        return if (isSelfTransfer) {
+            amount
+        } else {
+            amount + DEFAULT_FEE_ATOMS / ATOMS_PER_PEPEW
+        }
+    }
+
+    private fun pendingSpend(transactions: List<Transaction>): Double =
+        transactions.sumOf { it.localPendingSpend() }
+
     private fun logDebug(tag: String, message: String) {
         val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (isDebug) {
@@ -224,7 +241,7 @@ class RealWalletRepository(
             // Sort UTXOs by value descending
             val sortedUtxos = utxos.sortedByDescending { it.satoshis }
 
-            val feeAtoms = 100_000L // 0.001 PEPEW
+            val feeAtoms = DEFAULT_FEE_ATOMS // 0.001 PEPEW
             val totalNeededAtoms = amountAtoms + feeAtoms
 
             // Select UTXOs
@@ -288,7 +305,7 @@ class RealWalletRepository(
 
             // 5. Update local state
             val isSelf = recipientAddress.trim() == sender.trim()
-            val pendingAmount = if (isSelf) feeAtoms / 100_000_000.0 else amountAtoms / 100_000_000.0
+            val pendingAmount = if (isSelf) feeAtoms / ATOMS_PER_PEPEW else amountAtoms / ATOMS_PER_PEPEW
             val pendingTx = Transaction(
                 txId = txid,
                 address = recipientAddress,
@@ -299,7 +316,16 @@ class RealWalletRepository(
                 isSelfTransfer = isSelf
             )
             
-            _transactions.value = listOf(pendingTx) + _transactions.value
+            val alreadyKnown = _transactions.value.any { it.txId == txid }
+            if (!alreadyKnown) {
+                _transactions.value = listOf(pendingTx) + _transactions.value
+                val optimisticSpend = if (isSelf) {
+                    feeAtoms / ATOMS_PER_PEPEW
+                } else {
+                    (amountAtoms + feeAtoms) / ATOMS_PER_PEPEW
+                }
+                _balance.value = maxOf(0.0, _balance.value - optimisticSpend)
+            }
             _lastSendError = null
             _apiMessage.value = "Transaction broadcasted successfully! TXID: $txid"
 
@@ -370,8 +396,13 @@ class RealWalletRepository(
         try {
             val summary = apiClient.getAddressSummary(addr)
             val history = apiClient.getHistory(addr, limit = 50, offset = 0)
+            val apiUtxos = try {
+                apiClient.getUtxos(addr)
+            } catch (e: Exception) {
+                logDebug("WalletRefresh", "UTXO refresh failed: ${e.message}")
+                emptyList()
+            }
 
-            _balance.value = summary.confirmedPepew + summary.unconfirmedPepew
             val apiTransactions = (history.ifEmpty { summary.history }).map { apiTx ->
                 Transaction(
                     txId = apiTx.txid,
@@ -382,11 +413,39 @@ class RealWalletRepository(
                     isPending = apiTx.isPending,
                     isSelfTransfer = apiTx.isSelfTransfer
                 )
-            }
-            val localPending = _transactions.value.filter { it.isPending }
-            val merged = (apiTransactions + localPending)
+            }.distinctBy { it.txId }
+
+            val apiTxIds = apiTransactions.map { it.txId }.toSet()
+            val unresolvedLocalPending = _transactions.value
+                .filter { it.isPending && it.txId !in apiTxIds }
+                .distinctBy { it.txId }
+            val merged = (apiTransactions + unresolvedLocalPending)
                 .distinctBy { it.txId }
                 .sortedByDescending { it.timestamp }
+
+            val summaryBalance = summary.confirmedPepew + summary.unconfirmedPepew
+            val spendableUtxoBalance = apiUtxos
+                .takeIf { it.isNotEmpty() }
+                ?.sumOf { it.satoshis }
+                ?.div(ATOMS_PER_PEPEW)
+            val unresolvedPendingSpend = pendingSpend(unresolvedLocalPending)
+            val balanceBeforeRefresh = _balance.value
+            val adjustedSummaryBalance = if (
+                unresolvedPendingSpend > 0.0 &&
+                summaryBalance > balanceBeforeRefresh + 0.00000001
+            ) {
+                maxOf(0.0, summaryBalance - unresolvedPendingSpend)
+            } else {
+                summaryBalance
+            }
+            val refreshedBalance = if (unresolvedPendingSpend > 0.0) {
+                listOfNotNull(spendableUtxoBalance, adjustedSummaryBalance).minOrNull()
+                    ?: adjustedSummaryBalance
+            } else {
+                spendableUtxoBalance ?: summaryBalance
+            }
+
+            _balance.value = maxOf(0.0, refreshedBalance)
             _transactions.value = merged
             consecutiveRefreshFailures = 0
             hasLoadedSuccessfully = true
