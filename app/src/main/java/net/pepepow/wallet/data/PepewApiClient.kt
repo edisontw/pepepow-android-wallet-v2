@@ -47,7 +47,7 @@ class PepewApiClient(
         val safeAddress = encodePathSegment(address)
         val body = requestHttp("/api/wallet/address/$safeAddress")
         val json = JSONObject(body)
-        parseAddressSummary(json)
+        parseAddressSummary(json, address)
     }
 
     suspend fun getHistory(address: String, limit: Int = 50, offset: Int = 0): List<ApiTransaction> = withContext(Dispatchers.IO) {
@@ -65,7 +65,7 @@ class PepewApiClient(
                 else -> JSONArray()
             }
         }
-        parseHistory(historyArray)
+        parseHistory(historyArray, address)
     }
 
     suspend fun getUtxos(address: String): List<ApiUtxo> = withContext(Dispatchers.IO) {
@@ -170,7 +170,7 @@ class PepewApiClient(
         }
     }
 
-    private fun parseAddressSummary(json: JSONObject): ApiAddressSummary {
+    private fun parseAddressSummary(json: JSONObject, fallbackAddress: String): ApiAddressSummary {
         val balance = json.optJSONObject("balance")
         val confirmedPepew = when {
             balance == null -> json.optString("confirmed_pepew", json.optString("balance", "0"))
@@ -187,10 +187,11 @@ class PepewApiClient(
             else -> "0"
         }
 
-        val history = json.optJSONArray("history")?.let { parseHistory(it) } ?: emptyList()
+        val responseAddress = json.optString("address", fallbackAddress)
+        val history = json.optJSONArray("history")?.let { parseHistory(it, responseAddress) } ?: emptyList()
 
         return ApiAddressSummary(
-            address = json.optString("address"),
+            address = responseAddress,
             confirmedPepew = confirmedPepew.toSafeDouble(),
             unconfirmedPepew = unconfirmedPepew.toSafeDouble(),
             history = history,
@@ -198,29 +199,42 @@ class PepewApiClient(
         )
     }
 
-    private fun parseHistory(array: JSONArray): List<ApiTransaction> {
+    private fun parseHistory(array: JSONArray, ownAddress: String): List<ApiTransaction> {
         val result = mutableListOf<ApiTransaction>()
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
             val txid = item.optString("txid", item.optString("tx_hash", item.optString("hash", ""))).trim()
             if (txid.isBlank()) continue
 
-            val amount = firstDouble(
-                item,
-                listOf("address_delta_pepew", "delta_pepew", "balance_delta_pepew", "amount_pepew", "value_pepew", "delta_pepew", "amount", "value", "balance_delta")
-            )
-
-            if (amount == null) continue
-
-            val timestampSeconds = item.optLongOrNull("timestamp") ?: item.optLongOrNull("time")
-            val height = item.optLongOrNull("height")
-            val pending = item.optBoolean("pending", false) || height == 0L || height == -1L
+            val amount = firstPepewAmount(item) ?: continue
+            val direction = item.optString("direction").lowercase(Locale.US)
+            val txType = item.optString("type").lowercase(Locale.US)
+            val fromAddress = item.optString("from_address", item.optString("from", item.optString("sender", item.optString("source", ""))))
+            val toAddress = item.optString("to_address", item.optString("to", item.optString("recipient", item.optString("destination", ""))))
+            val hasOwnInput = containsAddress(item, ownAddress, listOf("inputs", "vin", "ins"))
+            val hasOwnOutput = containsAddress(item, ownAddress, listOf("outputs", "vout", "outs"))
+            val isSelfTransfer = item.optBoolean("is_self_transfer", false) ||
+                direction.contains("self") ||
+                txType.contains("self") ||
+                (fromAddress == ownAddress && toAddress == ownAddress) ||
+                (hasOwnInput && hasOwnOutput && !containsExternalOutput(item, ownAddress))
             val isSend = when {
+                isSelfTransfer -> true
                 item.has("is_send") -> item.optBoolean("is_send")
-                item.has("direction") -> item.optString("direction").lowercase(Locale.US).contains("send")
+                direction.contains("sent") || direction.contains("send") -> true
+                fromAddress == ownAddress -> true
+                hasOwnInput -> true
                 amount < 0.0 -> true
                 else -> false
             }
+
+            val timestampSeconds = item.optLongOrNull("timestamp") ?: item.optLongOrNull("time")
+            val height = item.optLongOrNull("height")
+            val pending = item.optBoolean("pending", false) ||
+                item.optBoolean("is_mempool", false) ||
+                height == 0L ||
+                height == -1L
+
             result += ApiTransaction(
                 txid = txid,
                 address = item.optString("address", txid),
@@ -321,6 +335,73 @@ class PepewApiClient(
         return script.joinToString("") { String.format("%02x", it.toInt() and 0xff) }
     }
 
+    private fun firstPepewAmount(json: JSONObject): Double? {
+        val pepewKeys = listOf(
+            "address_delta_pepew",
+            "delta_pepew",
+            "balance_delta_pepew",
+            "amount_pepew",
+            "value_pepew"
+        )
+        for (key in pepewKeys) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val raw = json.optString(key)
+            val parsed = raw.toSafeDouble()
+            if (parsed != 0.0 || raw.trim() in listOf("0", "0.0", "0.00")) return parsed
+        }
+
+        val atomKeys = listOf(
+            "address_delta_atoms",
+            "delta_atoms",
+            "balance_delta_atoms",
+            "amount_atoms",
+            "value_atoms",
+            "satoshis"
+        )
+        for (key in atomKeys) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val raw = json.optString(key)
+            val parsedAtoms = raw.replace(",", "").trim().toLongOrNull() ?: continue
+            return parsedAtoms / 100_000_000.0
+        }
+
+        val ambiguousKeys = listOf("amount", "value", "balance_delta")
+        for (key in ambiguousKeys) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val raw = json.optString(key)
+            val parsed = raw.toSafeDouble()
+            if (parsed == 0.0 && raw.trim() !in listOf("0", "0.0", "0.00")) continue
+            return if (parsed == Math.floor(parsed) && kotlin.math.abs(parsed) >= 1_000_000.0) {
+                parsed / 100_000_000.0
+            } else {
+                parsed
+            }
+        }
+        return null
+    }
+
+    private fun containsAddress(json: JSONObject, ownAddress: String, keys: List<String>): Boolean {
+        if (ownAddress.isBlank()) return false
+        for (key in keys) {
+            val value = json.opt(key) ?: continue
+            if (value.toString().contains(ownAddress)) return true
+        }
+        return false
+    }
+
+    private fun containsExternalOutput(json: JSONObject, ownAddress: String): Boolean {
+        if (ownAddress.isBlank()) return false
+        val outputKeys = listOf("outputs", "vout", "outs")
+        for (key in outputKeys) {
+            val array = json.optJSONArray(key) ?: continue
+            for (i in 0 until array.length()) {
+                val output = array.opt(i)?.toString() ?: continue
+                if (!output.contains(ownAddress)) return true
+            }
+        }
+        return false
+    }
+
     private fun encodePathSegment(value: String): String =
         URLEncoder.encode(value.trim(), "UTF-8").replace("+", "%20")
 
@@ -330,16 +411,6 @@ class PepewApiClient(
     private fun String.toSafeDouble(): Double {
         val parsed = replace(",", "").trim().toDoubleOrNull() ?: 0.0
         return if (parsed.isNaN() || parsed.isInfinite()) 0.0 else parsed
-    }
-
-    private fun firstDouble(json: JSONObject, keys: List<String>): Double? {
-        for (key in keys) {
-            if (!json.has(key) || json.isNull(key)) continue
-            val raw = json.optString(key)
-            val parsed = raw.toSafeDouble()
-            if (parsed != 0.0 || raw.trim() in listOf("0", "0.0", "0.00")) return parsed
-        }
-        return null
     }
 
     private fun JSONObject.optLongOrNull(key: String): Long? =
