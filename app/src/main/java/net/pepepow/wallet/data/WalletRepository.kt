@@ -320,6 +320,7 @@ class RealWalletRepository(
             if (!alreadyKnown) {
                 _transactions.value = listOf(pendingTx) + _transactions.value
                 val optimisticSpend = if (isSelf) {
+codex/update-wallet-balance-immediately-on-send-qpc3u1
                     feeAtoms / ATOMS_PER_PEPEW
                 } else {
                     (amountAtoms + feeAtoms) / ATOMS_PER_PEPEW
