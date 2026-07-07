@@ -35,6 +35,8 @@ import androidx.compose.ui.platform.LocalContext
 import android.content.ClipboardManager
 import android.content.ClipData
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
@@ -75,6 +77,15 @@ private fun formatUsdtValue(usdtValue: Double): String {
         trimmed = trimmed.dropLast(1)
     }
     return "~ $trimmed USDT"
+}
+
+private fun openAddressInExplorer(context: Context, address: String) {
+    if (address.isBlank()) return
+    val intent = Intent(
+        Intent.ACTION_VIEW,
+        Uri.parse("https://explorer.pepepow.net/address/$address")
+    )
+    context.startActivity(intent)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -514,7 +525,8 @@ fun DashboardScreen(
                     val isApiLoading by walletViewModel.isApiLoading.collectAsState()
                     IconButton(
                         onClick = { walletViewModel.refreshWalletData() },
-                        enabled = !isApiLoading
+                        enabled = !isApiLoading,
+                        modifier = Modifier.size(48.dp)
                     ) {
                         if (isApiLoading) {
                             CircularProgressIndicator(
@@ -526,12 +538,16 @@ fun DashboardScreen(
                             Icon(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = "Refresh",
-                                tint = Color.DarkGray
+                                tint = Color.DarkGray,
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }
 
-                    IconButton(onClick = onNavigateToApiStatus) {
+                    IconButton(
+                        onClick = onNavigateToApiStatus,
+                        modifier = Modifier.size(48.dp)
+                    ) {
                         val color = when (apiState) {
                             ApiState.READY, ApiState.CONNECTED -> Color(0xFF4CAF50)
                             ApiState.FAILED -> Color(0xFFF44336)
@@ -539,14 +555,19 @@ fun DashboardScreen(
                         Icon(
                             imageVector = Icons.Default.Cloud,
                             contentDescription = "API Status",
-                            tint = color
+                            tint = color,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
-                    IconButton(onClick = onNavigateToSettings) {
+                    IconButton(
+                        onClick = onNavigateToSettings,
+                        modifier = Modifier.size(48.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Settings",
-                            tint = Color.DarkGray
+                            tint = Color.DarkGray,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 },
@@ -644,34 +665,56 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                            .clickable {
-                                if (address.isNotEmpty()) {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("PEPEW Address", address)
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.Start
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy Address",
-                            tint = Color.White,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (address.length > 20) address.take(10) + "..." + address.takeLast(8) else address,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .heightIn(min = 36.dp)
+                                .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    if (address.isNotEmpty()) {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("PEPEW Address", address)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy Address",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (address.length > 20) address.take(10) + "..." + address.takeLast(8) else address,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { openAddressInExplorer(context, address) },
+                            enabled = address.isNotBlank(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.7f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.heightIn(min = 36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInBrowser,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Open in Explorer", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                 }
             }
@@ -684,17 +727,17 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 ActionButton(
-                    icon = Icons.Default.ArrowOutward,
+                    imageVector = Icons.Default.ArrowOutward,
                     label = "Send",
                     onClick = onNavigateToSend
                 )
                 ActionButton(
-                    icon = Icons.Default.QrCode,
+                    imageVector = Icons.Default.QrCode,
                     label = "Receive",
                     onClick = onNavigateToReceive
                 )
                 ActionButton(
-                    icon = Icons.Default.History,
+                    imageVector = Icons.Default.History,
                     label = "History",
                     onClick = onNavigateToHistory
                 )
@@ -772,13 +815,13 @@ fun ActionButton(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier.sizeIn(minWidth = 72.dp, minHeight = 72.dp).clickable { onClick() }
     ) {
         Surface(
             color = PepepowSurface,
             shape = RoundedCornerShape(16.dp),
             tonalElevation = 2.dp,
-            modifier = Modifier.size(56.dp)
+            modifier = Modifier.size(60.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
@@ -1397,6 +1440,7 @@ fun SettingsScreen(
     var showResetConfirm by remember { mutableStateOf(false) }
     
     val mnemonic by walletViewModel.mnemonic.collectAsState()
+    val address by walletViewModel.address.collectAsState()
     val isApiMode by walletViewModel.isApiMode.collectAsState()
     val context = LocalContext.current
 
@@ -1477,6 +1521,25 @@ fun SettingsScreen(
                         ) {
                             Text("Non-Custodial", fontSize = 14.sp)
                             Text("Yes (Keys stay local)", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Wallet Address", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = if (address.isBlank()) "No address available" else address,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.DarkGray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { openAddressInExplorer(context, address) },
+                            enabled = address.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp)
+                        ) {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Open in Explorer", fontSize = 13.sp)
                         }
                     }
                 }

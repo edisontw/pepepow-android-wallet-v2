@@ -132,9 +132,15 @@ class SendViewModel(
                             _sendProgress.value = null
                         }
 
-                        // Schedule a delayed refresh after 12 seconds
+                        // Schedule delayed refreshes after broadcast so mempool/API state can catch up.
                         viewModelScope.launch {
                             kotlinx.coroutines.delay(12_000)
+                            try {
+                                repository.refreshWalletData(force = true)
+                            } catch (_: Exception) {}
+                        }
+                        viewModelScope.launch {
+                            kotlinx.coroutines.delay(45_000)
                             try {
                                 repository.refreshWalletData(force = true)
                             } catch (_: Exception) {}
