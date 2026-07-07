@@ -94,6 +94,8 @@ class RealWalletRepository(
     private val secureStorage = EncryptedStorage(context)
     private val mnemonicService = Bip39MnemonicService()
     private var _lastSendError: String? = null
+    private val txMetadataManager = TxMetadataManager(context.getSharedPreferences("wallet_tx_metadata", Context.MODE_PRIVATE))
+    private val pendingTxInputs = java.util.concurrent.ConcurrentHashMap<String, List<Pair<String, Int>>>()
 
     private val _isWalletCreated = MutableStateFlow(secureStorage.isWalletCreated())
     override val isWalletCreated: StateFlow<Boolean> = _isWalletCreated.asStateFlow()
@@ -187,6 +189,8 @@ class RealWalletRepository(
 
     override fun clearWallet() {
         secureStorage.clear()
+        txMetadataManager.clear()
+        pendingTxInputs.clear()
         _mnemonic.value = null
         _address.value = ""
         _isWalletCreated.value = false
@@ -304,13 +308,20 @@ class RealWalletRepository(
             val txid = apiClient.broadcastTransaction(rawHex)
 
             // 5. Update local state
+            val broadcastTime = System.currentTimeMillis()
+            txMetadataManager.setFirstSeenTimestamp(txid, broadcastTime)
+            if (txMetadataManager.getInsertionOrder(txid) == 0L) {
+                txMetadataManager.setInsertionOrder(txid, txMetadataManager.getNextSequence())
+            }
+            pendingTxInputs[txid] = selectedUtxos.map { it.txid to it.vout }
+
             val isSelf = recipientAddress.trim() == sender.trim()
             val pendingAmount = if (isSelf) feeAtoms / ATOMS_PER_PEPEW else amountAtoms / ATOMS_PER_PEPEW
             val pendingTx = Transaction(
                 txId = txid,
                 address = recipientAddress,
                 amount = pendingAmount,
-                timestamp = System.currentTimeMillis(),
+                timestamp = broadcastTime,
                 isSend = true,
                 isPending = true,
                 isSelfTransfer = isSelf
@@ -318,7 +329,7 @@ class RealWalletRepository(
             
             val alreadyKnown = _transactions.value.any { it.txId == txid }
             if (!alreadyKnown) {
-                _transactions.value = listOf(pendingTx) + _transactions.value
+                _transactions.value = sortTransactions(listOf(pendingTx) + _transactions.value)
                 val optimisticSpend = if (isSelf) {
                     feeAtoms / ATOMS_PER_PEPEW
                 } else {
@@ -403,7 +414,9 @@ class RealWalletRepository(
                 emptyList()
             }
 
-            val apiTransactions = (history.ifEmpty { summary.history }).map { apiTx ->
+            val combinedHistory = (history + summary.history).distinctBy { it.txid }
+
+            val apiTransactions = combinedHistory.map { apiTx ->
                 Transaction(
                     txId = apiTx.txid,
                     address = apiTx.address,
@@ -415,13 +428,41 @@ class RealWalletRepository(
                 )
             }.distinctBy { it.txId }
 
+            // Record metadata (first seen timestamp and insertion order) for newly discovered txs in API response.
+            // We iterate from oldest to newest so that newer ones in the API list get higher insertion sequence.
+            for (i in apiTransactions.indices.reversed()) {
+                val apiTx = apiTransactions[i]
+                val txId = apiTx.txId
+                if (txMetadataManager.getFirstSeenTimestamp(txId) == null) {
+                    txMetadataManager.setFirstSeenTimestamp(txId, apiTx.timestamp)
+                }
+                if (txMetadataManager.getInsertionOrder(txId) == 0L) {
+                    txMetadataManager.setInsertionOrder(txId, txMetadataManager.getNextSequence())
+                }
+            }
+
             val apiTxIds = apiTransactions.map { it.txId }.toSet()
             val unresolvedLocalPending = _transactions.value
                 .filter { it.isPending && it.txId !in apiTxIds }
                 .distinctBy { it.txId }
-            val merged = (apiTransactions + unresolvedLocalPending)
-                .distinctBy { it.txId }
-                .sortedByDescending { it.timestamp }
+
+            // Clean up resolved transactions from pendingTxInputs map
+            for (txId in apiTxIds) {
+                pendingTxInputs.remove(txId)
+            }
+
+            // Map all transactions to use their stored first-seen timestamp for UI sorting
+            val mappedApiTxList = apiTransactions.map { tx ->
+                val localTs = txMetadataManager.getFirstSeenTimestamp(tx.txId)
+                if (localTs != null) tx.copy(timestamp = localTs) else tx
+            }
+
+            val mappedUnresolvedLocalPending = unresolvedLocalPending.map { tx ->
+                val localTs = txMetadataManager.getFirstSeenTimestamp(tx.txId)
+                if (localTs != null) tx.copy(timestamp = localTs) else tx
+            }
+
+            val merged = sortTransactions((mappedApiTxList + mappedUnresolvedLocalPending).distinctBy { it.txId })
 
             val summaryBalance = summary.confirmedPepew + summary.unconfirmedPepew
             val spendableUtxoBalance = apiUtxos
@@ -438,12 +479,24 @@ class RealWalletRepository(
             } else {
                 summaryBalance
             }
-            val refreshedBalance = if (unresolvedPendingSpend > 0.0) {
-                listOfNotNull(spendableUtxoBalance, adjustedSummaryBalance).minOrNull()
-                    ?: adjustedSummaryBalance
-            } else {
-                spendableUtxoBalance ?: summaryBalance
+
+            val adjustedUtxoBalance = spendableUtxoBalance?.let { utxoBal ->
+                val pendingSpendNotReflectedInUtxos = unresolvedLocalPending
+                    .filter { pendingTx ->
+                        val inputs = pendingTxInputs[pendingTx.txId]
+                        if (inputs != null) {
+                            inputs.any { (txId, vout) ->
+                                apiUtxos.any { utxo -> utxo.txid == txId && utxo.vout == vout }
+                            }
+                        } else {
+                            true
+                        }
+                    }
+                    .sumOf { it.localPendingSpend() }
+                maxOf(0.0, utxoBal - pendingSpendNotReflectedInUtxos)
             }
+
+            val refreshedBalance = adjustedUtxoBalance ?: adjustedSummaryBalance
 
             _balance.value = maxOf(0.0, refreshedBalance)
             _transactions.value = merged
@@ -536,6 +589,19 @@ class RealWalletRepository(
             broadcastEndpointStatus = broadcastStatus,
             lastSendError = _lastSendError
         )
+    }
+
+    private fun sortTransactions(txs: List<Transaction>): List<Transaction> {
+        return txs.sortedWith { tx1, tx2 ->
+            val tsCompare = tx2.timestamp.compareTo(tx1.timestamp)
+            if (tsCompare != 0) {
+                tsCompare
+            } else {
+                val ord1 = txMetadataManager.getInsertionOrder(tx1.txId)
+                val ord2 = txMetadataManager.getInsertionOrder(tx2.txId)
+                ord2.compareTo(ord1)
+            }
+        }
     }
 }
 
@@ -752,5 +818,42 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         } catch (e: Exception) {
             emptyList()
         }
+    }
+}
+
+class TxMetadataManager(private val prefs: android.content.SharedPreferences) {
+
+    @Synchronized
+    fun getFirstSeenTimestamp(txId: String): Long? {
+        val key = "ts_$txId"
+        return if (prefs.contains(key)) prefs.getLong(key, 0L) else null
+    }
+
+    @Synchronized
+    fun setFirstSeenTimestamp(txId: String, timestamp: Long) {
+        prefs.edit().putLong("ts_$txId", timestamp).apply()
+    }
+
+    @Synchronized
+    fun getInsertionOrder(txId: String): Long {
+        return prefs.getLong("ord_$txId", 0L)
+    }
+
+    @Synchronized
+    fun getNextSequence(): Long {
+        val current = prefs.getLong("global_seq", 0L)
+        val next = current + 1
+        prefs.edit().putLong("global_seq", next).apply()
+        return next
+    }
+
+    @Synchronized
+    fun setInsertionOrder(txId: String, order: Long) {
+        prefs.edit().putLong("ord_$txId", order).apply()
+    }
+
+    @Synchronized
+    fun clear() {
+        prefs.edit().clear().apply()
     }
 }
