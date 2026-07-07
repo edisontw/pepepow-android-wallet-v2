@@ -72,7 +72,7 @@ class SendViewModel(
                     valid = false
                 }
                 AddressValidator.AddressValidationResult.ValidP2PKH -> {
-                    // Valid!
+                    // Valid.
                 }
             }
         }
@@ -123,6 +123,14 @@ class SendViewModel(
                 when (result) {
                     is SendResult.Success -> {
                         _sendSuccess.value = true
+                        _sendProgress.value = "Refreshing wallet..."
+                        try {
+                            repository.refreshWalletData()
+                        } catch (_: Exception) {
+                            // Keep send success visible even if the immediate post-broadcast refresh is delayed.
+                        } finally {
+                            _sendProgress.value = null
+                        }
                     }
                     else -> {
                         _sendSuccess.value = false
