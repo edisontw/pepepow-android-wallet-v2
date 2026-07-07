@@ -299,7 +299,16 @@ class RealWalletRepository(
                 isSelfTransfer = isSelf
             )
             
-            _transactions.value = listOf(pendingTx) + _transactions.value
+            val alreadyKnown = _transactions.value.any { it.txId == txid }
+            if (!alreadyKnown) {
+                _transactions.value = listOf(pendingTx) + _transactions.value
+                val optimisticSpend = if (isSelf) {
+                    feeAtoms / 100_000_000.0
+                } else {
+                    (amountAtoms + feeAtoms) / 100_000_000.0
+                }
+                _balance.value = maxOf(0.0, _balance.value - optimisticSpend)
+            }
             _lastSendError = null
             _apiMessage.value = "Transaction broadcasted successfully! TXID: $txid"
 
