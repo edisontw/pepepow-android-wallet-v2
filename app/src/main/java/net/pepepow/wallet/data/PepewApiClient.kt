@@ -2,6 +2,7 @@ package net.pepepow.wallet.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import net.pepepow.wallet.domain.address.Base58Check
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -69,6 +70,7 @@ class PepewApiClient(
 
     suspend fun getUtxos(address: String): List<ApiUtxo> = withContext(Dispatchers.IO) {
         val safeAddress = encodePathSegment(address)
+        val fallbackScriptPubKey = p2pkhScriptForAddress(address)
         val body = requestHttp("/api/wallet/utxo/$safeAddress?fresh=1&t=${System.currentTimeMillis()}")
         
         val utxoArray = if (body.trim().startsWith("[")) {
@@ -103,7 +105,8 @@ class PepewApiClient(
             val scriptPubKey = item.optString("scriptPubKey", 
                 item.optString("script_pub_key", 
                     item.optString("script_pubkey", 
-                        item.optString("script", "")))).trim()
+                        item.optString("script", fallbackScriptPubKey)))).trim()
+            if (scriptPubKey.isBlank()) continue
 
             result.add(ApiUtxo(txid, vout, satoshis, scriptPubKey))
         }
@@ -111,22 +114,26 @@ class PepewApiClient(
     }
 
     suspend fun broadcastTransaction(hex: String): String = withContext(Dispatchers.IO) {
-        val postBody = JSONObject().put("raw_tx", hex).toString()
+        val cleanHex = hex.trim()
+        val postBody = JSONObject().put("raw_tx", cleanHex).toString()
         val body = requestHttp("/api/wallet/broadcast", method = "POST", postBody = postBody)
-        
-        val json = JSONObject(body)
-        if (json.has("error") && !json.isNull("error")) {
-            val errorObj = json.optJSONObject("error")
-            val errMsg = errorObj?.optString("message") 
-                ?: json.optString("error") 
-                ?: json.optString("message")
-            throw PepewApiException(400, errMsg)
+        val trimmedBody = body.trim()
+
+        if (trimmedBody.matches(Regex("^[0-9a-fA-F]{64}$"))) {
+            return@withContext trimmedBody.lowercase(Locale.US)
         }
-        val txid = json.optString("txid", json.optString("tx_hash", json.optString("result", json.optString("data", ""))))
-        if (txid.trim().length != 64) {
-            throw PepewApiException(500, "Invalid txid returned by broadcast: $txid")
+
+        val json = JSONObject(trimmedBody)
+        val apiError = extractApiError(json)
+        if (apiError != null) {
+            throw PepewApiException(400, apiError)
         }
-        txid.trim()
+
+        val txid = extractTxid(json)
+        if (txid == null) {
+            throw PepewApiException(500, "Unexpected broadcast response")
+        }
+        txid
     }
 
     suspend fun checkHealth(): Boolean = try {
@@ -269,12 +276,49 @@ class PepewApiClient(
 
     private fun parseApiError(body: String): String? = try {
         val json = JSONObject(body)
-        val error = json.optJSONObject("error")
-        error?.optString("message")?.takeIf { it.isNotBlank() }
-            ?: error?.optString("code")?.takeIf { it.isNotBlank() }
-            ?: json.optString("message").takeIf { it.isNotBlank() }
+        extractApiError(json) ?: json.optString("message").takeIf { it.isNotBlank() }
     } catch (_: Exception) {
         null
+    }
+
+    private fun extractApiError(json: JSONObject): String? {
+        if (!json.has("error") || json.isNull("error")) return null
+        val raw = json.get("error")
+        return when (raw) {
+            is Boolean -> if (raw) json.optString("message", "API rejected transaction") else null
+            is JSONObject -> raw.optString("message").takeIf { it.isNotBlank() }
+                ?: raw.optString("code").takeIf { it.isNotBlank() }
+                ?: "API rejected transaction"
+            is String -> raw.takeIf { it.isNotBlank() && it.lowercase(Locale.US) != "false" }
+            else -> raw.toString().takeIf { it.isNotBlank() && it != "0" }
+        }
+    }
+
+    private fun extractTxid(json: JSONObject): String? {
+        val directKeys = listOf("txid", "tx_hash", "hash", "result", "data")
+        for (key in directKeys) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val value = json.get(key)
+            when (value) {
+                is String -> if (value.trim().matches(Regex("^[0-9a-fA-F]{64}$"))) return value.trim().lowercase(Locale.US)
+                is JSONObject -> extractTxid(value)?.let { return it }
+            }
+        }
+        json.optJSONObject("transaction")?.let { extractTxid(it)?.let { txid -> return txid } }
+        return null
+    }
+
+    private fun p2pkhScriptForAddress(address: String): String {
+        val (_, payload) = Base58Check.decodeChecked(address.trim())
+        require(payload.size == 20) { "Invalid address hash size" }
+        val script = ByteArray(25)
+        script[0] = 0x76.toByte()
+        script[1] = 0xa9.toByte()
+        script[2] = 0x14.toByte()
+        System.arraycopy(payload, 0, script, 3, 20)
+        script[23] = 0x88.toByte()
+        script[24] = 0xac.toByte()
+        return script.joinToString("") { String.format("%02x", it.toInt() and 0xff) }
     }
 
     private fun encodePathSegment(value: String): String =
