@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import net.pepepow.wallet.data.WalletRepository
 import net.pepepow.wallet.data.SendResult
 import net.pepepow.wallet.domain.address.AddressValidator
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SendViewModel(
     private val repository: WalletRepository
@@ -32,6 +33,8 @@ class SendViewModel(
     private val _sendProgress = MutableStateFlow<String?>(null)
     val sendProgress: StateFlow<String?> = _sendProgress.asStateFlow()
 
+    private val sendInFlight = AtomicBoolean(false)
+
     private fun pepesToAtomic(amountStr: String): Long {
         val parts = amountStr.trim().split('.')
         if (parts.size > 2) throw IllegalArgumentException("Invalid decimal format")
@@ -49,6 +52,10 @@ class SendViewModel(
     }
 
     fun sendPepew(recipientAddress: String, amountStr: String) {
+        if (!sendInFlight.compareAndSet(false, true)) {
+            return
+        }
+
         _addressError.value = null
         _amountError.value = null
         _sendSuccess.value = null
@@ -109,17 +116,22 @@ class SendViewModel(
             }
         }
 
-        if (valid) {
-            _isSending.value = true
-            _sendProgress.value = "Preparing transaction..."
-            viewModelScope.launch {
+        if (!valid) {
+            _sendSuccess.value = false
+            sendInFlight.set(false)
+            return
+        }
+
+        _isSending.value = true
+        _sendProgress.value = "Preparing transaction..."
+        viewModelScope.launch {
+            try {
                 val result = repository.sendTx(recipientAddress, amountAtoms) { progress ->
                     _sendProgress.value = progress
                 }
                 _sendResult.value = result
-                _isSending.value = false
                 _sendProgress.value = null
-                
+
                 when (result) {
                     is SendResult.Success -> {
                         _sendSuccess.value = true
@@ -173,9 +185,11 @@ class SendViewModel(
                         }
                     }
                 }
+            } finally {
+                _isSending.value = false
+                _sendProgress.value = null
+                sendInFlight.set(false)
             }
-        } else {
-            _sendSuccess.value = false
         }
     }
 
