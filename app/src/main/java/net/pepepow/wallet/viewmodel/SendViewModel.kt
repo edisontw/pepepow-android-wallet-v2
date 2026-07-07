@@ -125,11 +125,19 @@ class SendViewModel(
                         _sendSuccess.value = true
                         _sendProgress.value = "Refreshing wallet..."
                         try {
-                            repository.refreshWalletData()
+                            repository.refreshWalletData(force = true)
                         } catch (_: Exception) {
                             // Keep send success visible even if the immediate post-broadcast refresh is delayed.
                         } finally {
                             _sendProgress.value = null
+                        }
+
+                        // Schedule a delayed refresh after 12 seconds
+                        viewModelScope.launch {
+                            kotlinx.coroutines.delay(12_000)
+                            try {
+                                repository.refreshWalletData(force = true)
+                            } catch (_: Exception) {}
                         }
                     }
                     else -> {

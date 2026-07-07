@@ -22,7 +22,7 @@ import java.util.Locale
  */
 class PepewApiClient(
     val baseUrl: String = "https://light.pepepow.net/",
-    private val timeoutMs: Int = 15_000
+    private val timeoutMs: Int = 30_000
 ) {
     suspend fun getHealth(): ApiHealth = withContext(Dispatchers.IO) {
         val body = requestHttp("/api/health")
@@ -31,6 +31,25 @@ class PepewApiClient(
             ok = json.optBoolean("ok", true),
             status = json.optString("status", "unknown")
         )
+    }
+
+    suspend fun getPrice(): ApiPrice = withContext(Dispatchers.IO) {
+        val body = requestHttp("/api/price")
+        val json = JSONObject(body)
+        val ok = json.optBoolean("ok", true)
+        val priceUsdtStr = when {
+            json.has("price_usdt") && !json.isNull("price_usdt") -> json.optString("price_usdt")
+            json.has("price") && !json.isNull("price") -> json.optString("price")
+            else -> null
+        }
+        val priceUsdt = try {
+            priceUsdtStr?.replace(",", "")?.trim()?.let {
+                java.math.BigDecimal(it).toDouble()
+            }
+        } catch (_: Exception) {
+            priceUsdtStr?.replace(",", "")?.trim()?.toDoubleOrNull()
+        }
+        ApiPrice(ok = ok, priceUsdt = priceUsdt)
     }
 
     suspend fun getStatus(): ApiStatusResponse = withContext(Dispatchers.IO) {
@@ -241,51 +260,70 @@ class PepewApiClient(
                 amount = kotlin.math.abs(amount),
                 timestampMillis = (timestampSeconds ?: (System.currentTimeMillis() / 1000L)) * 1000L,
                 isSend = isSend,
-                isPending = pending
+                isPending = pending,
+                isSelfTransfer = isSelfTransfer
             )
         }
         return result
     }
 
     private fun requestHttp(path: String, method: String = "GET", postBody: String? = null): String {
-        val normalizedBase = baseUrl.trimEnd('/')
-        val normalizedPath = if (path.startsWith("/")) path else "/$path"
-        val url = URL(normalizedBase + normalizedPath)
-        val connection = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = timeoutMs
-            readTimeout = timeoutMs
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "PEPEW-Android-Wallet-V2")
-            if (postBody != null) {
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-        }
+        var attempts = 0
+        val maxAttempts = if (method == "GET") 2 else 1
+        var lastException: Exception? = null
 
-        try {
-            if (postBody != null) {
-                connection.outputStream.use { os ->
-                    os.write(postBody.toByteArray(Charsets.UTF_8))
+        while (attempts < maxAttempts) {
+            attempts++
+            val normalizedBase = baseUrl.trimEnd('/')
+            val normalizedPath = if (path.startsWith("/")) path else "/$path"
+            val url = URL(normalizedBase + normalizedPath)
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = method
+                    connectTimeout = timeoutMs
+                    readTimeout = timeoutMs
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", "PEPEW-Android-Wallet-V2")
+                    if (postBody != null) {
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json")
+                    }
                 }
-            }
-            val statusCode = connection.responseCode
-            val stream = if (statusCode in 200..299) connection.inputStream else (connection.errorStream ?: connection.inputStream)
-            val body = if (stream != null) {
-                BufferedReader(InputStreamReader(stream)).use { reader ->
-                    reader.readText()
+
+                if (postBody != null) {
+                    connection.outputStream.use { os ->
+                        os.write(postBody.toByteArray(Charsets.UTF_8))
+                    }
                 }
-            } else {
-                ""
+                val statusCode = connection.responseCode
+                val stream = if (statusCode in 200..299) connection.inputStream else (connection.errorStream ?: connection.inputStream)
+                val body = if (stream != null) {
+                    BufferedReader(InputStreamReader(stream)).use { reader ->
+                        reader.readText()
+                    }
+                } else {
+                    ""
+                }
+                if (statusCode !in 200..299) {
+                    val message = if (body.isNotBlank()) parseApiError(body) else null
+                    throw PepewApiException(statusCode, message ?: "HTTP $statusCode")
+                }
+                return body
+            } catch (e: Exception) {
+                lastException = e
+                if (attempts < maxAttempts && method == "GET") {
+                    try {
+                        Thread.sleep(1000)
+                    } catch (_: InterruptedException) {}
+                    continue
+                }
+                throw e
+            } finally {
+                connection?.disconnect()
             }
-            if (statusCode !in 200..299) {
-                val message = if (body.isNotBlank()) parseApiError(body) else null
-                throw PepewApiException(statusCode, message ?: "HTTP $statusCode")
-            }
-            return body
-        } finally {
-            connection.disconnect()
         }
+        throw lastException ?: PepewApiException(500, "Unknown network error")
     }
 
     private fun parseApiError(body: String): String? = try {
@@ -417,6 +455,11 @@ class PepewApiClient(
         if (has(key) && !isNull(key)) optLong(key) else null
 }
 
+data class ApiPrice(
+    val ok: Boolean,
+    val priceUsdt: Double?
+)
+
 data class ApiUtxo(
     val txid: String,
     val vout: Int,
@@ -449,7 +492,8 @@ data class ApiTransaction(
     val amount: Double,
     val timestampMillis: Long,
     val isSend: Boolean,
-    val isPending: Boolean
+    val isPending: Boolean,
+    val isSelfTransfer: Boolean = false
 )
 
 class PepewApiException(

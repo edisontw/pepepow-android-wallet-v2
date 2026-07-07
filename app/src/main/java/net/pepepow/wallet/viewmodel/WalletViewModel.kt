@@ -22,6 +22,7 @@ class WalletViewModel(
     val mnemonic: StateFlow<String?> = repository.mnemonic
     val isWalletCreated: StateFlow<Boolean> = repository.isWalletCreated
     val isApiMode: StateFlow<Boolean> = repository.isApiMode
+    val usdPrice: StateFlow<Double?> = repository.usdPrice
 
     fun setApiMode(enabled: Boolean) {
         repository.setApiMode(enabled)
@@ -54,9 +55,9 @@ class WalletViewModel(
         refreshWalletData()
     }
 
-    fun refreshWalletData() {
+    fun refreshWalletData(force: Boolean = false) {
         viewModelScope.launch {
-            repository.refreshWalletData()
+            repository.refreshWalletData(force)
         }
     }
 

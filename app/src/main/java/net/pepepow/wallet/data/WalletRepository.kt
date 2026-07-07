@@ -30,7 +30,8 @@ data class Transaction(
     val amount: Double,
     val timestamp: Long,
     val isSend: Boolean,
-    val isPending: Boolean = false
+    val isPending: Boolean = false,
+    val isSelfTransfer: Boolean = false
 )
 
 sealed class SendResult {
@@ -65,13 +66,14 @@ interface WalletRepository {
     val mnemonic: StateFlow<String?>
     val isWalletCreated: StateFlow<Boolean>
     val transactions: StateFlow<List<Transaction>>
+    val usdPrice: StateFlow<Double?>
 
     fun createWallet()
     fun confirmBackup()
     fun clearWallet()
     suspend fun sendTx(recipientAddress: String, amountAtoms: Long, onProgress: (String) -> Unit): SendResult
     suspend fun retryConnection()
-    suspend fun refreshWalletData()
+    suspend fun refreshWalletData(force: Boolean = false)
     suspend fun checkDiagnostics(): WalletDiagnostics
     fun setApiState(state: ApiState)
     fun restoreWalletFromMnemonic(mnemonic: String)
@@ -116,6 +118,13 @@ class RealWalletRepository(
 
     private val _isApiLoading = MutableStateFlow(false)
     override val isApiLoading: StateFlow<Boolean> = _isApiLoading.asStateFlow()
+
+    private val _usdPrice = MutableStateFlow<Double?>(null)
+    override val usdPrice: StateFlow<Double?> = _usdPrice.asStateFlow()
+
+    private var lastRefreshAt = 0L
+    private var consecutiveRefreshFailures = 0
+    private var hasLoadedSuccessfully = false
 
     // Real wallet is always in API mode
     override val isApiMode: StateFlow<Boolean> = MutableStateFlow(true).asStateFlow()
@@ -178,6 +187,10 @@ class RealWalletRepository(
         _isWalletCreated.value = false
         _balance.value = 0.0
         _transactions.value = emptyList()
+        _usdPrice.value = null
+        lastRefreshAt = 0L
+        consecutiveRefreshFailures = 0
+        hasLoadedSuccessfully = false
         _apiState.value = ApiState.CONNECTED
         _apiMessage.value = "Wallet reset."
     }
@@ -274,13 +287,15 @@ class RealWalletRepository(
             val txid = apiClient.broadcastTransaction(rawHex)
 
             // 5. Update local state
+            val isSelf = recipientAddress.trim() == sender.trim()
             val pendingTx = Transaction(
                 txId = txid,
                 address = recipientAddress,
-                amount = amountAtoms / 1e8,
+                amount = if (isSelf) 0.001 else (amountAtoms / 1e8),
                 timestamp = System.currentTimeMillis(),
                 isSend = true,
-                isPending = true
+                isPending = true,
+                isSelfTransfer = isSelf
             )
             
             _transactions.value = listOf(pendingTx) + _transactions.value
@@ -336,12 +351,19 @@ class RealWalletRepository(
         }
     }
 
-    override suspend fun refreshWalletData() {
+    override suspend fun refreshWalletData(force: Boolean) {
         val addr = _address.value
         if (addr.isBlank()) return
 
+        if (_isApiLoading.value) return
+
+        val now = System.currentTimeMillis()
+        if (!force && now - lastRefreshAt < 15_000) {
+            _apiMessage.value = "Refresh cooling down."
+            return
+        }
+
         _isApiLoading.value = true
-        _apiState.value = ApiState.CONNECTED
         _apiMessage.value = "Syncing with blockchain..."
 
         try {
@@ -356,21 +378,41 @@ class RealWalletRepository(
                     amount = apiTx.amount,
                     timestamp = apiTx.timestampMillis,
                     isSend = apiTx.isSend,
-                    isPending = apiTx.isPending
+                    isPending = apiTx.isPending,
+                    isSelfTransfer = apiTx.isSelfTransfer
                 )
             }
+            consecutiveRefreshFailures = 0
+            hasLoadedSuccessfully = true
+            lastRefreshAt = now
             _apiState.value = ApiState.READY
             _apiMessage.value = "Sync complete."
         } catch (e: Exception) {
-            _apiState.value = ApiState.FAILED
-            _apiMessage.value = when (e) {
+            val syncErrorMsg = when (e) {
                 is PepewApiException -> "API error ${e.statusCode}: ${e.message}"
                 is java.net.SocketTimeoutException -> "API timeout. Please retry."
                 is java.net.UnknownHostException -> "No network or DNS failure. Please retry."
                 else -> e.message ?: "Unable to reach PEPEW Light API."
             }
+            consecutiveRefreshFailures++
+            if (hasLoadedSuccessfully && consecutiveRefreshFailures <= 2) {
+                _apiState.value = ApiState.READY
+                _apiMessage.value = "Refresh delayed. Showing last synced data."
+            } else {
+                _apiState.value = ApiState.FAILED
+                _apiMessage.value = syncErrorMsg
+            }
         } finally {
             _isApiLoading.value = false
+        }
+
+        try {
+            val priceRes = apiClient.getPrice()
+            if (priceRes.ok && priceRes.priceUsdt != null) {
+                _usdPrice.value = priceRes.priceUsdt
+            }
+        } catch (e: Exception) {
+            Log.e("WalletRepository", "Price fetch failed", e)
         }
     }
 
@@ -465,6 +507,9 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
     private val _isApiMode = MutableStateFlow(prefs.getBoolean("use_api_mode", false))
     override val isApiMode: StateFlow<Boolean> = _isApiMode.asStateFlow()
 
+    private val _usdPrice = MutableStateFlow<Double?>(0.000000799)
+    override val usdPrice: StateFlow<Double?> = _usdPrice.asStateFlow()
+
     override fun createWallet() {
         val newMnemonic = "pepe frog wallet mock phase seed words never real green crypto"
         val newAddress = "PMockPepepowAddress123456789"
@@ -527,7 +572,8 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
             address = "PEPEW Faucet",
             amount = 100.0,
             timestamp = System.currentTimeMillis(),
-            isSend = false
+            isSend = false,
+            isSelfTransfer = false
         )
         val updated = listOf(faucetTx) + _transactions.value
         _transactions.value = updated
@@ -567,13 +613,16 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         val newBalance = (_balance.value * 1e8 - totalNeededAtoms) / 1e8
         _balance.value = newBalance
         val txid = "mock_pending_${System.currentTimeMillis()}"
+        val sender = _address.value
+        val isSelf = recipientAddress.trim() == sender.trim()
         val pendingTx = Transaction(
             txId = txid,
             address = recipientAddress,
-            amount = amountAtoms / 1e8,
+            amount = if (isSelf) 0.001 else (amountAtoms / 1e8),
             timestamp = System.currentTimeMillis(),
             isSend = true,
-            isPending = true
+            isPending = true,
+            isSelfTransfer = isSelf
         )
         val updated = listOf(pendingTx) + _transactions.value
         _transactions.value = updated
@@ -583,7 +632,7 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
     }
 
     override suspend fun retryConnection() {}
-    override suspend fun refreshWalletData() {}
+    override suspend fun refreshWalletData(force: Boolean) {}
     override suspend fun checkDiagnostics(): WalletDiagnostics {
         return WalletDiagnostics(
             apiConnected = true,
@@ -608,6 +657,7 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
             obj.put("timestamp", tx.timestamp)
             obj.put("isSend", tx.isSend)
             obj.put("isPending", tx.isPending)
+            obj.put("isSelfTransfer", tx.isSelfTransfer)
             array.put(obj)
         }
         prefs.edit().putString("transactions", array.toString()).apply()
@@ -627,7 +677,8 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
                         amount = obj.getDouble("amount"),
                         timestamp = obj.getLong("timestamp"),
                         isSend = obj.getBoolean("isSend"),
-                        isPending = obj.optBoolean("isPending", false)
+                        isPending = obj.optBoolean("isPending", false),
+                        isSelfTransfer = obj.optBoolean("isSelfTransfer", false)
                     )
                 )
             }

@@ -55,6 +55,28 @@ private fun formatPepewAmount(value: Double, scale: Int = 4): String {
     }
 }
 
+private fun formatUsdValue(usdValue: Double): String {
+    if (usdValue >= 0.01) {
+        return "$%,.2f USD".format(usdValue)
+    }
+    if (usdValue <= 0.0) {
+        return "$0.00 USD"
+    }
+    var temp = usdValue
+    var leadingZeros = 0
+    while (temp < 0.1 && leadingZeros < 10) {
+        temp *= 10.0
+        leadingZeros++
+    }
+    val decimals = (leadingZeros + 3).coerceIn(2, 8)
+    val formatted = String.format(java.util.Locale.US, "%.${decimals}f", usdValue)
+    var trimmed = formatted
+    while (trimmed.endsWith("0") && trimmed.substringAfter(".").length > 2) {
+        trimmed = trimmed.dropLast(1)
+    }
+    return "~ $$trimmed USD"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WelcomeScreen(onNavigateToCreate: () -> Unit) {
@@ -467,6 +489,7 @@ fun DashboardScreen(
     val address by walletViewModel.address.collectAsState()
     val apiState by apiStatusViewModel.apiState.collectAsState()
     val transactions by historyViewModel.transactions.collectAsState()
+    val usdPrice by walletViewModel.usdPrice.collectAsState()
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
@@ -607,8 +630,14 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
+                    val usdText = if (usdPrice != null) {
+                        val usdValue = balance * usdPrice!!
+                        formatUsdValue(usdValue)
+                    } else {
+                        "~ price unavailable"
+                    }
                     Text(
-                        text = "~ $%,.2f USD".format(balance * 0.10), // Mock conversion rate
+                        text = usdText,
                         color = PepepowSecondary,
                         fontSize = 14.sp
                     )
@@ -787,16 +816,31 @@ fun TxItem(tx: Transaction) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val surfaceColor = when {
+                    tx.isSelfTransfer -> Color(0xFFE3F2FD) // Light Blue
+                    tx.isSend -> Color(0xFFFFEBEE)       // Light Red
+                    else -> Color(0xFFE8F5E9)            // Light Green
+                }
+                val iconTint = when {
+                    tx.isSelfTransfer -> Color(0xFF1565C0) // Dark Blue
+                    tx.isSend -> Color(0xFFC62828)       // Dark Red
+                    else -> Color(0xFF2E7D32)            // Dark Green
+                }
+                val iconVector = when {
+                    tx.isSelfTransfer -> Icons.Default.SwapHoriz
+                    tx.isSend -> Icons.Default.ArrowUpward
+                    else -> Icons.Default.ArrowDownward
+                }
                 Surface(
-                    color = if (tx.isSend) Color(0xFFFFEBEE) else Color(0xFFE8F5E9),
+                    color = surfaceColor,
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.size(40.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (tx.isSend) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                            imageVector = iconVector,
                             contentDescription = null,
-                            tint = if (tx.isSend) Color(0xFFC62828) else Color(0xFF2E7D32),
+                            tint = iconTint,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -806,25 +850,39 @@ fun TxItem(tx: Transaction) {
 
                 Column {
                     Text(
-                        text = if (tx.isSend) "Sent PEPEW" else "Received PEPEW",
+                        text = when {
+                            tx.isSelfTransfer -> "Self Send"
+                            tx.isSend -> "Sent PEPEW"
+                            else -> "Received PEPEW"
+                        },
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp
                     )
+                    val subtitle = when {
+                        tx.isSelfTransfer -> if (tx.isPending) "Pending • Fee only" else "Sent to self / fee only"
+                        tx.isPending -> "Pending..."
+                        else -> dateStr
+                    }
                     Text(
-                        text = if (tx.isPending) "Pending..." else dateStr,
+                        text = subtitle,
                         fontSize = 11.sp,
-                        color = if (tx.isPending) PepepowPrimary else Color.Gray,
-                        fontWeight = if (tx.isPending) FontWeight.Bold else FontWeight.Normal
+                        color = if (tx.isPending && !tx.isSelfTransfer) PepepowPrimary else Color.Gray,
+                        fontWeight = if (tx.isPending && !tx.isSelfTransfer) FontWeight.Bold else FontWeight.Normal
                     )
                 }
             }
 
             Column(horizontalAlignment = Alignment.End) {
+                val amountText = if (tx.isSelfTransfer) {
+                    "-0.0010 PEPEW"
+                } else {
+                    "${if (tx.isSend) "-" else "+"} ${formatPepewAmount(tx.amount, 4)} PEPEW"
+                }
                 Text(
-                    text = "${if (tx.isSend) "-" else "+"} ${formatPepewAmount(tx.amount, 4)} PEPEW",
+                    text = amountText,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
-                    color = if (tx.isSend) Color.Black else PepepowPrimary,
+                    color = if (tx.isSend || tx.isSelfTransfer) Color.Black else PepepowPrimary,
                     fontFamily = FontFamily.Monospace
                 )
                 val displayAddress = if (tx.address.length > 18) {
