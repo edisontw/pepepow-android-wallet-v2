@@ -11,23 +11,17 @@ object TransactionBuilder {
         privateKey: ByteArray,
         utxos: List<Utxo>,
         recipientAddress: String,
-        amountPepew: Double,
-        feePepew: Double,
+        amountSat: Long,
+        feeSat: Long,
         senderAddress: String
     ): String {
-        val amountSat = Math.round(amountPepew * 1e8)
-        val feeSat = Math.round(feePepew * 1e8)
         val totalNeededSat = amountSat + feeSat
 
-        // 1. Select UTXOs
+        // 1. Verify and sum UTXOs
         var selectedSatoshis = 0L
-        val selectedUtxos = mutableListOf<Utxo>()
-        for (utxo in utxos) {
-            selectedUtxos.add(utxo)
+        val selectedUtxos = utxos
+        for (utxo in selectedUtxos) {
             selectedSatoshis += utxo.satoshis
-            if (selectedSatoshis >= totalNeededSat) {
-                break
-            }
         }
 
         if (selectedSatoshis < totalNeededSat) {
@@ -45,7 +39,8 @@ object TransactionBuilder {
         val outputs = mutableListOf<TransactionOutput>()
         outputs.add(TransactionOutput(amountSat, recipientScript))
 
-        if (changeSat > 0) {
+        // Dust threshold for P2PKH is 546 satoshis
+        if (changeSat >= 546L) {
             val senderHash = decodeAddressToHash160(senderAddress)
             val changeScript = getP2PKHScript(senderHash)
             outputs.add(TransactionOutput(changeSat, changeScript))

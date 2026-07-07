@@ -45,6 +45,16 @@ val PepepowSecondary = Color(0xFFC8E6C9)
 val PepepowBackground = Color(0xFFF1F8E9)
 val PepepowSurface = Color(0xFFFFFFFF)
 
+private fun formatPepewAmount(value: Double, scale: Int = 4): String {
+    return try {
+        java.math.BigDecimal(value.toString())
+            .setScale(scale, java.math.RoundingMode.HALF_UP)
+            .toPlainString()
+    } catch (e: Exception) {
+        String.format(java.util.Locale.US, "%.${scale}f", value)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WelcomeScreen(onNavigateToCreate: () -> Unit) {
@@ -232,6 +242,36 @@ fun CreateWalletScreen(
                                     }
                                 }
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "You can view this mnemonic phrase again later in Settings.",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val context = LocalContext.current
+                        OutlinedButton(
+                            onClick = {
+                                mnemonic?.let { mStr ->
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Mnemonic", mStr)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Mnemonic copied", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            border = BorderStroke(1.dp, PepepowPrimary),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = PepepowPrimary),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().height(36.dp)
+                        ) {
+                            Text("Copy mnemonic", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -429,6 +469,10 @@ fun DashboardScreen(
     val transactions by historyViewModel.transactions.collectAsState()
     val context = LocalContext.current
 
+    LaunchedEffect(Unit) {
+        walletViewModel.refreshWalletData()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -554,7 +598,7 @@ fun DashboardScreen(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = "%,.4f PEPEW".format(balance),
+                        text = "${formatPepewAmount(balance, 4)} PEPEW",
                         color = Color.White,
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
@@ -777,7 +821,7 @@ fun TxItem(tx: Transaction) {
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "${if (tx.isSend) "-" else "+"} ${tx.amount} PEPEW",
+                    text = "${if (tx.isSend) "-" else "+"} ${formatPepewAmount(tx.amount, 4)} PEPEW",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     color = if (tx.isSend) Color.Black else PepepowPrimary,
@@ -999,6 +1043,26 @@ fun SendScreen(
     val amountError by sendViewModel.amountError.collectAsState()
     val sendSuccess by sendViewModel.sendSuccess.collectAsState()
 
+    val isSending by sendViewModel.isSending.collectAsState()
+    val sendProgress by sendViewModel.sendProgress.collectAsState()
+
+    val addressValidation = if (recipientAddress.isBlank()) null else net.pepepow.wallet.domain.address.AddressValidator.validateAddress(recipientAddress)
+    val amountDouble = amountStr.toDoubleOrNull()
+    
+    val isAddressOk = addressValidation == net.pepepow.wallet.domain.address.AddressValidator.AddressValidationResult.ValidP2PKH
+    val isAmountOk = amountDouble != null && amountDouble > 0 && (amountDouble + 0.001) <= balance
+    val sendButtonEnabled = isAddressOk && isAmountOk && !isSending
+
+    val disabledReason = when {
+        recipientAddress.isBlank() -> "Enter recipient address"
+        addressValidation == net.pepepow.wallet.domain.address.AddressValidator.AddressValidationResult.InvalidAddress -> "Invalid PEPEPOW address"
+        addressValidation == net.pepepow.wallet.domain.address.AddressValidator.AddressValidationResult.UnsupportedAddressType -> "Unsupported address type (P2SH not supported)"
+        amountStr.isBlank() -> "Enter amount"
+        amountDouble == null || amountDouble <= 0 -> "Enter valid amount (> 0)"
+        (amountDouble + 0.001) > balance -> "Insufficient balance (need amount + 0.001 fee)"
+        else -> null
+    }
+
     LaunchedEffect(sendSuccess) {
         if (sendSuccess == true) {
             sendViewModel.resetSendState()
@@ -1006,12 +1070,16 @@ fun SendScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        sendViewModel.resetSendState()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Send PEPEW", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = onNavigateBack, enabled = !isSending) {
                         Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -1044,7 +1112,7 @@ fun SendScreen(
                     ) {
                         Text("Available Balance:", color = Color.Gray, fontSize = 13.sp)
                         Text(
-                            "%,.4f PEPEW".format(balance),
+                            "${formatPepewAmount(balance, 4)} PEPEW",
                             fontWeight = FontWeight.Bold,
                             color = PepepowPrimary,
                             fontFamily = FontFamily.Monospace
@@ -1059,12 +1127,13 @@ fun SendScreen(
                     label = { Text("Recipient PEPEW Address") },
                     placeholder = { Text("P...") },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSending,
                     isError = addressError != null,
                     supportingText = {
                         if (addressError != null) {
                             Text(addressError!!, color = Color.Red)
                         } else {
-                            Text("Must begin with a 'P'", color = Color.Gray)
+                            Text("Must be a valid P2PKH address starting with 'P'", color = Color.Gray)
                         }
                     },
                     colors = OutlinedTextFieldDefaults.colors(
@@ -1080,6 +1149,7 @@ fun SendScreen(
                     label = { Text("Amount (PEPEW)") },
                     placeholder = { Text("0.0") },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSending,
                     isError = amountError != null,
                     supportingText = {
                         if (amountError != null) {
@@ -1087,7 +1157,10 @@ fun SendScreen(
                         }
                     },
                     trailingIcon = {
-                        TextButton(onClick = { amountStr = (balance - 0.001).coerceAtLeast(0.0).toString() }) {
+                        TextButton(
+                            onClick = { amountStr = (balance - 0.001).coerceAtLeast(0.0).toString() },
+                            enabled = !isSending
+                        ) {
                             Text("MAX", color = PepepowPrimary, fontWeight = FontWeight.Bold)
                         }
                     },
@@ -1111,17 +1184,110 @@ fun SendScreen(
                         Text("0.001 PEPEW", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+
+                // Diagnostics Panel
+                var showDiagnostics by remember { mutableStateOf(false) }
+                var diagnostics by remember { mutableStateOf<net.pepepow.wallet.data.WalletDiagnostics?>(null) }
+
+                LaunchedEffect(showDiagnostics, sendSuccess) {
+                    if (showDiagnostics) {
+                        while (true) {
+                            diagnostics = walletViewModel.checkDiagnostics()
+                            kotlinx.coroutines.delay(5000)
+                        }
+                    }
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = PepepowSurface),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showDiagnostics = !showDiagnostics },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Diagnostics Panel", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PepepowPrimary)
+                            Text(if (showDiagnostics) "▲" else "▼", color = PepepowPrimary, fontWeight = FontWeight.Bold)
+                        }
+
+                        if (showDiagnostics) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Divider(color = Color.LightGray.copy(alpha = 0.5f))
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            val d = diagnostics
+                            if (d == null) {
+                                Text("Loading diagnostics...", fontSize = 12.sp, color = Color.Gray)
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("API Connected", fontSize = 12.sp, color = Color.Gray)
+                                        Text(if (d.apiConnected) "YES" else "NO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (d.apiConnected) PepepowPrimary else Color.Red)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("UTXO Endpoint", fontSize = 12.sp, color = Color.Gray)
+                                        Text(d.utxoEndpointStatus, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (d.utxoEndpointStatus == "ok") PepepowPrimary else Color.Red)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("UTXO Count", fontSize = 12.sp, color = Color.Gray)
+                                        Text("${d.utxoCount}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Spendable Amount", fontSize = 12.sp, color = Color.Gray)
+                                        Text("${formatPepewAmount(d.spendableAmountDouble, 4)} PEPEW", fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Local Signing", fontSize = 12.sp, color = Color.Gray)
+                                        Text(if (d.signingEnabled) "ENABLED" else "BLOCKED", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (d.signingEnabled) PepepowPrimary else Color.Red)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Broadcast Endpoint", fontSize = 12.sp, color = Color.Gray)
+                                        Text(d.broadcastEndpointStatus, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (d.broadcastEndpointStatus == "ok") PepepowPrimary else Color.Red)
+                                    }
+                                    if (d.lastSendError != null) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Last Send Error:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Red)
+                                        Text(d.lastSendError, fontSize = 11.sp, color = Color.Red, lineHeight = 14.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            Button(
-                onClick = { sendViewModel.sendPepew(recipientAddress, amountStr) },
-                colors = ButtonDefaults.buttonColors(containerColor = PepepowPrimary),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-            ) {
-                Text("SEND PEPEW", fontWeight = FontWeight.Bold, color = Color.White)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (disabledReason != null && (recipientAddress.isNotEmpty() || amountStr.isNotEmpty())) {
+                    Text(
+                        text = disabledReason,
+                        color = Color.Red.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    )
+                }
+
+                Button(
+                    onClick = { sendViewModel.sendPepew(recipientAddress, amountStr) },
+                    enabled = sendButtonEnabled,
+                    colors = ButtonDefaults.buttonColors(containerColor = PepepowPrimary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                ) {
+                    if (isSending) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(sendProgress ?: "Preparing transaction...", fontWeight = FontWeight.Bold, color = Color.White)
+                    } else {
+                        Text("SEND PEPEW", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
             }
         }
     }
@@ -1357,6 +1523,25 @@ fun SettingsScreen(
                                             )
                                         }
                                         Spacer(modifier = Modifier.height(8.dp))
+
+                                        if (mnemonic != null) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    val clip = ClipData.newPlainText("Mnemonic", mnemonic)
+                                                    clipboard.setPrimaryClip(clip)
+                                                    Toast.makeText(context, "Mnemonic copied", Toast.LENGTH_SHORT).show()
+                                                },
+                                                border = BorderStroke(1.dp, Color(0xFFE65100)),
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE65100)),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.fillMaxWidth().height(36.dp)
+                                            ) {
+                                                Text("Copy mnemonic", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                        }
+
                                         TextButton(
                                             onClick = { isMnemonicRevealed = false },
                                             modifier = Modifier.align(Alignment.CenterHorizontally)

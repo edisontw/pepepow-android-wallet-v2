@@ -1,6 +1,7 @@
 package net.pepepow.wallet.data
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +33,29 @@ data class Transaction(
     val isPending: Boolean = false
 )
 
+sealed class SendResult {
+    data class Success(val txid: String) : SendResult()
+    data class ValidationError(val message: String) : SendResult()
+    data class InsufficientFunds(
+        val availableAtoms: Long,
+        val requiredAtoms: Long,
+        val feeAtoms: Long
+    ) : SendResult()
+    data class Blocked(val reason: String) : SendResult()
+    data class ApiError(val message: String, val cause: Throwable? = null) : SendResult()
+    data class Failure(val message: String, val cause: Throwable? = null) : SendResult()
+}
+
+data class WalletDiagnostics(
+    val apiConnected: Boolean,
+    val utxoEndpointStatus: String, // "ok", "missing", "error"
+    val utxoCount: Int,
+    val spendableAmountDouble: Double,
+    val signingEnabled: Boolean,
+    val broadcastEndpointStatus: String, // "ok", "missing", "error"
+    val lastSendError: String?
+)
+
 interface WalletRepository {
     val balance: StateFlow<Double>
     val address: StateFlow<String>
@@ -45,9 +69,10 @@ interface WalletRepository {
     fun createWallet()
     fun confirmBackup()
     fun clearWallet()
-    suspend fun sendTx(recipientAddress: String, amount: Double): Boolean
+    suspend fun sendTx(recipientAddress: String, amountAtoms: Long, onProgress: (String) -> Unit): SendResult
     suspend fun retryConnection()
     suspend fun refreshWalletData()
+    suspend fun checkDiagnostics(): WalletDiagnostics
     fun setApiState(state: ApiState)
     fun restoreWalletFromMnemonic(mnemonic: String)
     fun requestMockFaucet()
@@ -66,6 +91,7 @@ class RealWalletRepository(
 
     private val secureStorage = EncryptedStorage(context)
     private val mnemonicService = Bip39MnemonicService()
+    private var _lastSendError: String? = null
 
     private val _isWalletCreated = MutableStateFlow(secureStorage.isWalletCreated())
     override val isWalletCreated: StateFlow<Boolean> = _isWalletCreated.asStateFlow()
@@ -156,36 +182,94 @@ class RealWalletRepository(
         _apiMessage.value = "Wallet reset."
     }
 
-    override suspend fun sendTx(recipientAddress: String, amount: Double): Boolean = withContext(Dispatchers.IO) {
-        val words = secureStorage.getMnemonic() ?: return@withContext false
+    private fun logDebug(tag: String, message: String) {
+        val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (isDebug) {
+            Log.d(tag, message)
+        }
+    }
+
+    override suspend fun sendTx(
+        recipientAddress: String,
+        amountAtoms: Long,
+        onProgress: (String) -> Unit
+    ): SendResult = withContext(Dispatchers.IO) {
+        val words = secureStorage.getMnemonic() ?: return@withContext SendResult.Blocked("Mnemonic is missing")
         val sender = _address.value
-        if (sender.isBlank()) return@withContext false
+        if (sender.isBlank()) return@withContext SendResult.Blocked("Sender address is blank")
 
         try {
+            _lastSendError = null
             _isApiLoading.value = true
+            onProgress("Fetching UTXOs...")
             _apiMessage.value = "Fetching spendable UTXOs..."
 
             // 1. Fetch live UTXOs
             val apiUtxos = apiClient.getUtxos(sender)
             val utxos = apiUtxos.map { Utxo(it.txid, it.vout, it.satoshis, it.scriptPubKey) }
 
+            // Sort UTXOs by value descending
+            val sortedUtxos = utxos.sortedByDescending { it.satoshis }
+
+            val feeAtoms = 100_000L // 0.001 PEPEW
+            val totalNeededAtoms = amountAtoms + feeAtoms
+
+            // Select UTXOs
+            var selectedSatoshis = 0L
+            val selectedUtxos = mutableListOf<Utxo>()
+            for (utxo in sortedUtxos) {
+                selectedUtxos.add(utxo)
+                selectedSatoshis += utxo.satoshis
+                if (selectedSatoshis >= totalNeededAtoms) {
+                    break
+                }
+            }
+
+            logDebug("WalletSend", "sender: $sender")
+            logDebug("WalletSend", "recipient: $recipientAddress")
+            logDebug("WalletSend", "amount atomic: $amountAtoms")
+            logDebug("WalletSend", "fee atomic: $feeAtoms")
+            logDebug("WalletSend", "available atomic: $selectedSatoshis")
+            logDebug("WalletSend", "UTXO count: ${sortedUtxos.size}")
+            logDebug("WalletSend", "selected UTXO count: ${selectedUtxos.size}")
+
+            if (selectedSatoshis < totalNeededAtoms) {
+                return@withContext SendResult.InsufficientFunds(
+                    availableAtoms = selectedSatoshis,
+                    requiredAtoms = totalNeededAtoms,
+                    feeAtoms = feeAtoms
+                )
+            }
+
+            // Estimate size: size = 10 + 148 * selectedUtxos.size + 34 * (outputs.size)
+            val changeSat = selectedSatoshis - totalNeededAtoms
+            val outputsCount = if (changeSat >= 546L) 2 else 1
+            val estSize = 10 + 148 * selectedUtxos.size + 34 * outputsCount
+            logDebug("WalletSend", "unsigned tx size estimate: $estSize bytes")
+
+            onProgress("Building transaction...")
             _apiMessage.value = "Signing transaction locally..."
+
+            onProgress("Signing locally...")
             // 2. Derive private key
             val seed = mnemonicService.deriveSeed(words)
             val keyNode = Bip32.derivePath(seed, PepepowNetworkParams.DEFAULT_PATH)
 
             // 3. Build and Sign Transaction
-            val fee = 0.001 // PEPEW
             val rawHex = TransactionBuilder.createAndSignTransaction(
                 privateKey = keyNode.privateKey,
-                utxos = utxos,
+                utxos = selectedUtxos,
                 recipientAddress = recipientAddress,
-                amountPepew = amount,
-                feePepew = fee,
+                amountSat = amountAtoms,
+                feeSat = feeAtoms,
                 senderAddress = sender
             )
 
+            logDebug("WalletSend", "signed tx hex length: ${rawHex.length}")
+
+            onProgress("Broadcasting...")
             _apiMessage.value = "Broadcasting raw transaction..."
+
             // 4. Broadcast
             val txid = apiClient.broadcastTransaction(rawHex)
 
@@ -193,20 +277,34 @@ class RealWalletRepository(
             val pendingTx = Transaction(
                 txId = txid,
                 address = recipientAddress,
-                amount = amount,
+                amount = amountAtoms / 1e8,
                 timestamp = System.currentTimeMillis(),
                 isSend = true,
                 isPending = true
             )
             
             _transactions.value = listOf(pendingTx) + _transactions.value
-            _apiState.value = ApiState.READY
+            _lastSendError = null
             _apiMessage.value = "Transaction broadcasted successfully! TXID: $txid"
-            true
+
+            SendResult.Success(txid)
+        } catch (e: PepewApiException) {
+            logDebug("WalletSend", "broadcast HTTP status: ${e.statusCode}")
+            logDebug("WalletSend", "broadcast error message: ${e.message}")
+            _lastSendError = "Send failed: ${e.message}"
+            SendResult.ApiError(e.message, e)
+        } catch (e: java.net.SocketTimeoutException) {
+            logDebug("WalletSend", "broadcast network timeout")
+            _lastSendError = "Send failed: network timeout"
+            SendResult.ApiError("Network timeout. Please retry.", e)
+        } catch (e: java.net.UnknownHostException) {
+            logDebug("WalletSend", "broadcast no network connection")
+            _lastSendError = "Send failed: no connection"
+            SendResult.ApiError("No network connection or DNS failure.", e)
         } catch (e: Exception) {
-            _apiState.value = ApiState.FAILED
-            _apiMessage.value = "Send failed: ${e.message ?: e.javaClass.simpleName}"
-            false
+            logDebug("WalletSend", "broadcast failure: ${e.message}")
+            _lastSendError = "Send failed: ${e.message ?: e.javaClass.simpleName}"
+            SendResult.Failure(e.message ?: "Unexpected error", e)
         } finally {
             _isApiLoading.value = false
         }
@@ -281,6 +379,57 @@ class RealWalletRepository(
     }
 
     override fun requestMockFaucet() {}
+
+    override suspend fun checkDiagnostics(): WalletDiagnostics = withContext(Dispatchers.IO) {
+        val sender = _address.value
+        if (sender.isBlank()) {
+            return@withContext WalletDiagnostics(
+                apiConnected = false,
+                utxoEndpointStatus = "missing (no address)",
+                utxoCount = 0,
+                spendableAmountDouble = 0.0,
+                signingEnabled = false,
+                broadcastEndpointStatus = "ok",
+                lastSendError = _lastSendError
+            )
+        }
+        
+        val apiConnected = try {
+            val health = apiClient.getHealth()
+            val status = apiClient.getStatus()
+            health.ok && status.ok
+        } catch (e: Exception) {
+            false
+        }
+        var utxoStatus = "ok"
+        var utxoCount = 0
+        var spendableAmount = 0.0
+        var broadcastStatus = "ok"
+        
+        try {
+            val apiUtxos = apiClient.getUtxos(sender)
+            utxoCount = apiUtxos.size
+            spendableAmount = apiUtxos.sumOf { it.satoshis } / 1e8
+        } catch (e: Exception) {
+            utxoStatus = "error: ${e.message ?: e.javaClass.simpleName}"
+        }
+        
+        if (!apiConnected) {
+            broadcastStatus = "error (API disconnected)"
+        }
+        
+        val signingEnabled = secureStorage.getMnemonic() != null
+        
+        WalletDiagnostics(
+            apiConnected = apiConnected,
+            utxoEndpointStatus = utxoStatus,
+            utxoCount = utxoCount,
+            spendableAmountDouble = spendableAmount,
+            signingEnabled = signingEnabled,
+            broadcastEndpointStatus = broadcastStatus,
+            lastSendError = _lastSendError
+        )
+    }
 }
 
 /**
@@ -386,16 +535,42 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         saveTransactions(updated)
     }
 
-    override suspend fun sendTx(recipientAddress: String, amount: Double): Boolean {
-        val fee = 0.001
-        val total = amount + fee
-        if (amount <= 0.0 || total > _balance.value) return false
-        val newBalance = _balance.value - total
+    override suspend fun sendTx(
+        recipientAddress: String,
+        amountAtoms: Long,
+        onProgress: (String) -> Unit
+    ): SendResult {
+        onProgress("Preparing transaction...")
+        delay(300)
+        onProgress("Fetching UTXOs...")
+        delay(400)
+
+        val feeAtoms = 100_000L // 0.001 PEPEW
+        val totalNeededAtoms = amountAtoms + feeAtoms
+
+        val currentBalanceAtoms = Math.round(_balance.value * 1e8)
+        if (amountAtoms <= 0L || totalNeededAtoms > currentBalanceAtoms) {
+            return SendResult.InsufficientFunds(
+                availableAtoms = currentBalanceAtoms,
+                requiredAtoms = totalNeededAtoms,
+                feeAtoms = feeAtoms
+            )
+        }
+
+        onProgress("Building transaction...")
+        delay(300)
+        onProgress("Signing locally...")
+        delay(300)
+        onProgress("Broadcasting...")
+        delay(500)
+
+        val newBalance = (_balance.value * 1e8 - totalNeededAtoms) / 1e8
         _balance.value = newBalance
+        val txid = "mock_pending_${System.currentTimeMillis()}"
         val pendingTx = Transaction(
-            txId = "mock_pending_${System.currentTimeMillis()}",
+            txId = txid,
             address = recipientAddress,
-            amount = amount,
+            amount = amountAtoms / 1e8,
             timestamp = System.currentTimeMillis(),
             isSend = true,
             isPending = true
@@ -404,11 +579,22 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         _transactions.value = updated
         prefs.edit().putFloat("balance", newBalance.toFloat()).apply()
         saveTransactions(updated)
-        return true
+        return SendResult.Success(txid)
     }
 
     override suspend fun retryConnection() {}
     override suspend fun refreshWalletData() {}
+    override suspend fun checkDiagnostics(): WalletDiagnostics {
+        return WalletDiagnostics(
+            apiConnected = true,
+            utxoEndpointStatus = "ok (mock)",
+            utxoCount = 5,
+            spendableAmountDouble = _balance.value,
+            signingEnabled = true,
+            broadcastEndpointStatus = "ok (mock)",
+            lastSendError = null
+        )
+    }
     override fun setApiState(state: ApiState) {}
     override fun setApiMode(enabled: Boolean) {}
 

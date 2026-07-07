@@ -155,7 +155,12 @@ class PepewApiClient(
             else -> "0"
         }
         val valueDouble = valueStr.replace(",", "").trim().toDoubleOrNull() ?: 0.0
-        return Math.round(valueDouble * 1e8)
+        val isLargeInteger = valueDouble >= 1_000_000.0 && valueDouble == Math.floor(valueDouble)
+        return if (isLargeInteger) {
+            Math.round(valueDouble)
+        } else {
+            Math.round(valueDouble * 1e8)
+        }
     }
 
     private fun parseAddressSummary(json: JSONObject): ApiAddressSummary {
@@ -244,13 +249,17 @@ class PepewApiClient(
                 }
             }
             val statusCode = connection.responseCode
-            val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
-            val body = BufferedReader(InputStreamReader(stream)).use { reader ->
-                reader.readText()
+            val stream = if (statusCode in 200..299) connection.inputStream else (connection.errorStream ?: connection.inputStream)
+            val body = if (stream != null) {
+                BufferedReader(InputStreamReader(stream)).use { reader ->
+                    reader.readText()
+                }
+            } else {
+                ""
             }
             if (statusCode !in 200..299) {
-                val message = parseApiError(body) ?: "HTTP $statusCode"
-                throw PepewApiException(statusCode, message)
+                val message = if (body.isNotBlank()) parseApiError(body) else null
+                throw PepewApiException(statusCode, message ?: "HTTP $statusCode")
             }
             return body
         } finally {

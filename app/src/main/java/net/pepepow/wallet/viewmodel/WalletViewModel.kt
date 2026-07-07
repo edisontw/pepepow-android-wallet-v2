@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import net.pepepow.wallet.data.ApiState
 import net.pepepow.wallet.data.WalletRepository
+import net.pepepow.wallet.data.WalletDiagnostics
 
 class WalletViewModel(
     private val repository: WalletRepository
@@ -57,6 +58,10 @@ class WalletViewModel(
         viewModelScope.launch {
             repository.refreshWalletData()
         }
+    }
+
+    suspend fun checkDiagnostics(): WalletDiagnostics {
+        return repository.checkDiagnostics()
     }
 
     fun restoreWallet(mnemonic: String): Boolean {
