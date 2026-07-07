@@ -288,10 +288,11 @@ class RealWalletRepository(
 
             // 5. Update local state
             val isSelf = recipientAddress.trim() == sender.trim()
+            val pendingAmount = if (isSelf) feeAtoms / 100_000_000.0 else amountAtoms / 100_000_000.0
             val pendingTx = Transaction(
                 txId = txid,
                 address = recipientAddress,
-                amount = if (isSelf) 0.001 else (amountAtoms / 1e8),
+                amount = pendingAmount,
                 timestamp = System.currentTimeMillis(),
                 isSend = true,
                 isPending = true,
@@ -371,7 +372,7 @@ class RealWalletRepository(
             val history = apiClient.getHistory(addr, limit = 50, offset = 0)
 
             _balance.value = summary.confirmedPepew + summary.unconfirmedPepew
-            _transactions.value = (history.ifEmpty { summary.history }).map { apiTx ->
+            val apiTransactions = (history.ifEmpty { summary.history }).map { apiTx ->
                 Transaction(
                     txId = apiTx.txid,
                     address = apiTx.address,
@@ -382,6 +383,11 @@ class RealWalletRepository(
                     isSelfTransfer = apiTx.isSelfTransfer
                 )
             }
+            val localPending = _transactions.value.filter { it.isPending }
+            val merged = (apiTransactions + localPending)
+                .distinctBy { it.txId }
+                .sortedByDescending { it.timestamp }
+            _transactions.value = merged
             consecutiveRefreshFailures = 0
             hasLoadedSuccessfully = true
             lastRefreshAt = now
@@ -615,10 +621,11 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         val txid = "mock_pending_${System.currentTimeMillis()}"
         val sender = _address.value
         val isSelf = recipientAddress.trim() == sender.trim()
+        val pendingAmount = if (isSelf) feeAtoms / 100_000_000.0 else amountAtoms / 100_000_000.0
         val pendingTx = Transaction(
             txId = txid,
             address = recipientAddress,
-            amount = if (isSelf) 0.001 else (amountAtoms / 1e8),
+            amount = pendingAmount,
             timestamp = System.currentTimeMillis(),
             isSend = true,
             isPending = true,

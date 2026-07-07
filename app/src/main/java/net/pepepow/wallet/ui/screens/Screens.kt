@@ -55,26 +55,26 @@ private fun formatPepewAmount(value: Double, scale: Int = 4): String {
     }
 }
 
-private fun formatUsdValue(usdValue: Double): String {
-    if (usdValue >= 0.01) {
-        return "$%,.2f USD".format(usdValue)
+private fun formatUsdtValue(usdtValue: Double): String {
+    if (usdtValue >= 0.01) {
+        return "%,.2f USDT".format(usdtValue)
     }
-    if (usdValue <= 0.0) {
-        return "$0.00 USD"
+    if (usdtValue <= 0.0) {
+        return "0.00 USDT"
     }
-    var temp = usdValue
+    var temp = usdtValue
     var leadingZeros = 0
     while (temp < 0.1 && leadingZeros < 10) {
         temp *= 10.0
         leadingZeros++
     }
     val decimals = (leadingZeros + 3).coerceIn(2, 8)
-    val formatted = String.format(java.util.Locale.US, "%.${decimals}f", usdValue)
+    val formatted = String.format(java.util.Locale.US, "%.${decimals}f", usdtValue)
     var trimmed = formatted
     while (trimmed.endsWith("0") && trimmed.substringAfter(".").length > 2) {
         trimmed = trimmed.dropLast(1)
     }
-    return "~ $$trimmed USD"
+    return "~ $trimmed USDT"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -630,14 +630,14 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    val usdText = if (usdPrice != null) {
-                        val usdValue = balance * usdPrice!!
-                        formatUsdValue(usdValue)
+                    val usdtText = if (usdPrice != null) {
+                        val usdtValue = balance * usdPrice!!
+                        formatUsdtValue(usdtValue)
                     } else {
                         "~ price unavailable"
                     }
                     Text(
-                        text = usdText,
+                        text = usdtText,
                         color = PepepowSecondary,
                         fontSize = 14.sp
                     )
@@ -816,21 +816,9 @@ fun TxItem(tx: Transaction) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val surfaceColor = when {
-                    tx.isSelfTransfer -> Color(0xFFE3F2FD) // Light Blue
-                    tx.isSend -> Color(0xFFFFEBEE)       // Light Red
-                    else -> Color(0xFFE8F5E9)            // Light Green
-                }
-                val iconTint = when {
-                    tx.isSelfTransfer -> Color(0xFF1565C0) // Dark Blue
-                    tx.isSend -> Color(0xFFC62828)       // Dark Red
-                    else -> Color(0xFF2E7D32)            // Dark Green
-                }
-                val iconVector = when {
-                    tx.isSelfTransfer -> Icons.Default.SwapHoriz
-                    tx.isSend -> Icons.Default.ArrowUpward
-                    else -> Icons.Default.ArrowDownward
-                }
+                val surfaceColor = if (tx.isSend || tx.isSelfTransfer) Color(0xFFFFEBEE) else Color(0xFFE8F5E9)
+                val iconTint = if (tx.isSend || tx.isSelfTransfer) Color(0xFFC62828) else Color(0xFF2E7D32)
+                val iconVector = if (tx.isSend || tx.isSelfTransfer) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward
                 Surface(
                     color = surfaceColor,
                     shape = RoundedCornerShape(10.dp),
@@ -874,7 +862,7 @@ fun TxItem(tx: Transaction) {
 
             Column(horizontalAlignment = Alignment.End) {
                 val amountText = if (tx.isSelfTransfer) {
-                    "-0.0010 PEPEW"
+                    "- ${formatPepewAmount(tx.amount, 4)} PEPEW"
                 } else {
                     "${if (tx.isSend) "-" else "+"} ${formatPepewAmount(tx.amount, 4)} PEPEW"
                 }

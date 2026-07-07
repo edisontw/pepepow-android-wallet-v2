@@ -40,10 +40,18 @@ class WalletUnitTest {
         assertEquals(MnemonicValidationResult.INVALID_WORD, service.validateMnemonic(badWordMnemonic))
 
         // Invalid checksum
-        val tamperedMnemonic = mnemonic.replace(words[11], if (words[11] == "abandon") "about" else "abandon")
-        // Tampering might accidentally result in a valid checksum by chance (1 in 16), but most likely not
+        var tamperedMnemonic = mnemonic
+        for (candidate in listOf("abandon", "about", "academic", "accept")) {
+            if (candidate != words[11]) {
+                val temp = words.take(11).joinToString(" ") + " " + candidate
+                if (service.validateMnemonic(temp) == MnemonicValidationResult.INVALID_CHECKSUM) {
+                    tamperedMnemonic = temp
+                    break
+                }
+            }
+        }
         val result = service.validateMnemonic(tamperedMnemonic)
-        assertTrue(result == MnemonicValidationResult.INVALID_CHECKSUM || result == MnemonicValidationResult.INVALID_WORD)
+        assertEquals(MnemonicValidationResult.INVALID_CHECKSUM, result)
     }
 
     @Test

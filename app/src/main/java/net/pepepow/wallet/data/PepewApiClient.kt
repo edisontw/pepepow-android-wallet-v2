@@ -225,25 +225,34 @@ class PepewApiClient(
             val txid = item.optString("txid", item.optString("tx_hash", item.optString("hash", ""))).trim()
             if (txid.isBlank()) continue
 
-            val amount = firstPepewAmount(item) ?: continue
             val direction = item.optString("direction").lowercase(Locale.US)
             val txType = item.optString("type").lowercase(Locale.US)
             val fromAddress = item.optString("from_address", item.optString("from", item.optString("sender", item.optString("source", ""))))
             val toAddress = item.optString("to_address", item.optString("to", item.optString("recipient", item.optString("destination", ""))))
             val hasOwnInput = containsAddress(item, ownAddress, listOf("inputs", "vin", "ins"))
             val hasOwnOutput = containsAddress(item, ownAddress, listOf("outputs", "vout", "outs"))
+
+            val itemStr = item.toString()
+            val ownAddressCount = if (ownAddress.isNotBlank()) itemStr.split(ownAddress).size - 1 else 0
+            val parsedAmount = firstPepewAmount(item) ?: continue
+
             val isSelfTransfer = item.optBoolean("is_self_transfer", false) ||
                 direction.contains("self") ||
                 txType.contains("self") ||
                 (fromAddress == ownAddress && toAddress == ownAddress) ||
+                (parsedAmount < 0.0 && ownAddressCount >= 2) ||
+                (hasOwnInput && ownAddressCount >= 2) ||
                 (hasOwnInput && hasOwnOutput && !containsExternalOutput(item, ownAddress))
+
+            val amount = if (isSelfTransfer) 0.001 else parsedAmount
+
             val isSend = when {
                 isSelfTransfer -> true
                 item.has("is_send") -> item.optBoolean("is_send")
                 direction.contains("sent") || direction.contains("send") -> true
                 fromAddress == ownAddress -> true
                 hasOwnInput -> true
-                amount < 0.0 -> true
+                parsedAmount < 0.0 -> true
                 else -> false
             }
 
