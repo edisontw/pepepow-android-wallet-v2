@@ -1,7 +1,6 @@
 package net.pepepow.wallet.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -29,6 +28,9 @@ fun ConsolidateScreen(
 ) {
     val address by viewModel.address.collectAsState()
     val balance by viewModel.balance.collectAsState()
+    val utxoCountState by viewModel.utxoCount.collectAsState()
+    val mnemonicStr by viewModel.mnemonic.collectAsState()
+    
     val isConsolidating by viewModel.isConsolidating.collectAsState()
     val apiMessage by viewModel.apiMessage.collectAsState()
     val lastTxid by viewModel.lastTxid.collectAsState()
@@ -41,50 +43,24 @@ fun ConsolidateScreen(
     val canResume by viewModel.canResume.collectAsState()
 
     // Preferences & Estimates
-    var selectedPreset by remember { mutableStateOf(80) }
+    var selectedPreset by remember { mutableStateOf(40) }
     var maxRoundsStr by remember { mutableStateOf("") }
     var showConfirmDialog by remember { mutableStateOf(false) }
 
-    // Mock UTXO count (since we query it dynamically, we can estimate it based on balance or simulate).
-    // To be precise, let's show an estimate based on selected preset, or mock the total count for the UI.
-    // If the wallet balance is non-zero, let's say we have some count. Let's estimate UTXO count from VM:
-    // In our ViewModel, repository.fetchUtxos returns the list.
-    // Let's launch a check when address loads:
-    var utxoCount by remember { mutableStateOf(0) }
-    var totalEligibleAmount by remember { mutableStateOf(0.0) }
+    val isKeysAvailable = !mnemonicStr.isNullOrBlank()
+    val isApiAvailable = utxoCountState != null && utxoCountState != -1
+    val isUtxoCountSufficient = utxoCountState != null && utxoCountState!! >= 2
+    val isEligible = isKeysAvailable && isApiAvailable && isUtxoCountSufficient
 
-    LaunchedEffect(address) {
-        if (address.isNotBlank()) {
-            try {
-                val utxos = viewModel.checkResumeProgress().run {
-                    // Quick query to count UTXOs for UI display
-                    // Normally the repository is used
-                }
-            } catch (_: Exception) {}
-        }
+    // Calculate actual estimates based on selectedPreset & current UTXOs
+    val selectedInputCount = if (isEligible) {
+        minOf(selectedPreset, utxoCountState ?: selectedPreset)
+    } else {
+        0
     }
-
-    // Periodically fetch UTXO list to show current stats
-    LaunchedEffect(isConsolidating, isAutoMode) {
-        if (address.isNotBlank()) {
-            try {
-                // Fetch UTXOs to get count & total eligible
-                // Normally we do this inside ViewModel or direct repo call
-            } catch (_: Exception) {}
-        }
-    }
-
-    // Let's calculate manual estimates based on selectedPreset
-    val inputCount = selectedPreset
-    val estSize = 10 + inputCount * 148 + 34
+    val estSize = 10 + selectedInputCount * 148 + 34
     val feeSat = ((estSize + 999) / 1000) * 100_000L
     val estFeeDouble = feeSat / 100_000_000.0
-
-    // Since we consolidate all inputs to output, output = input - fee.
-    // We can simulate an average input value or show based on total balance.
-    // Let's assume an average UTXO size or use the total balance as upper bound.
-    val totalInputEstimate = minOf(balance, (0.01 * selectedPreset)) // mock estimation if no actual UTXOs loaded
-    val estOutputDouble = maxOf(0.0, totalInputEstimate - estFeeDouble)
 
     // Trigger check on startup
     LaunchedEffect(Unit) {
@@ -99,8 +75,8 @@ fun ConsolidateScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Are you sure you want to proceed with UTXO consolidation?")
                     Text("• This creates a real transaction on-chain.", fontSize = 13.sp)
-                    Text("• Estimated network fee: ${String.format("%.4f", estFeeDouble)} PEPEW", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text("• Selected inputs: up to $selectedPreset UTXOs.", fontSize = 13.sp)
+                    Text("• Estimated network fee: ${String.format("%.6f", estFeeDouble)} PEPEW", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("• Selected inputs: up to $selectedInputCount UTXOs.", fontSize = 13.sp)
                 }
             },
             confirmButton = {
@@ -144,53 +120,90 @@ fun ConsolidateScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Address & Balance Info Card
+            // A. Summary Card
             Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Wallet Address", fontSize = 13.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = address.ifBlank { "No address available" },
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color.DarkGray
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text("Confirmed Balance", fontSize = 13.sp, color = Color.Gray)
-                            Text(
-                                "${String.format("%.4f", balance)} PEPEW",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = PepepowPrimary
-                            )
+                        Text("Address", fontSize = 13.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+                        val displayAddress = if (address.length > 20) {
+                            address.take(10) + "..." + address.takeLast(8)
+                        } else {
+                            address.ifBlank { "No address available" }
                         }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Preset Inputs Limit", fontSize = 13.sp, color = Color.Gray)
-                            Text("$selectedPreset UTXOs", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
+                        Text(
+                            text = displayAddress,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.DarkGray,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Confirmed Balance", fontSize = 13.sp, color = Color.Gray)
+                        Text(
+                            "${String.format("%.4f", balance)} PEPEW",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = PepepowPrimary
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Eligible UTXOs", fontSize = 13.sp, color = Color.Gray)
+                        val utxoText = when (utxoCountState) {
+                            null -> "Loading..."
+                            -1 -> "Unavailable"
+                            else -> utxoCountState.toString()
                         }
+                        Text(
+                            text = utxoText,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.DarkGray
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Selected Limit", fontSize = 13.sp, color = Color.Gray)
+                        Text(
+                            "$selectedPreset UTXOs",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.DarkGray
+                        )
                     }
                 }
             }
 
-            // Security Warnings Banner
+            // Warnings Banner
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                border = BorderStroke(1.dp, Color(0xFFEF5350))
+                colors = CardDefaults.cardColors(containerColor = PepepowSurface),
+                border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFFC62828))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Security & Fee Warning", fontWeight = FontWeight.Bold, color = Color(0xFFC62828), fontSize = 14.sp)
-                    }
-                    Text("• Consolidation creates an on-chain transaction and requires a network fee.", fontSize = 12.sp, color = Color(0xFFC62828))
-                    Text("• Your recovery phrase and private keys never leave this device.", fontSize = 12.sp, color = Color(0xFFC62828))
-                    Text("• PEPEW Light only provides UTXO lookup and broadcasts signed transactions.", fontSize = 12.sp, color = Color(0xFFC62828))
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Consolidation creates an on-chain transaction and uses a network fee.\nKeys stay on this device. PEPEW Light only broadcasts the signed transaction.",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        lineHeight = 16.sp
+                    )
                 }
             }
 
@@ -227,7 +240,7 @@ fun ConsolidateScreen(
                 }
             }
 
-            // Mode Selector tabs (Manual / Auto)
+            // B. Preset Buttons (only show when not running)
             if (!isAutoMode && !isConsolidating) {
                 Text("Select Presets Limit for Consolidation", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PepepowPrimary)
                 Row(
@@ -241,12 +254,17 @@ fun ConsolidateScreen(
                             colors = CardDefaults.cardColors(
                                 containerColor = if (selected) PepepowPrimary else PepepowSurface
                             ),
-                            border = BorderStroke(1.dp, if (selected) PepepowPrimary else Color.LightGray),
+                            border = BorderStroke(1.dp, if (selected) PepepowPrimary else Color.LightGray.copy(alpha = 0.5f)),
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { selectedPreset = preset }
                         ) {
-                            Box(modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Text(
                                     preset.toString(),
                                     fontWeight = FontWeight.Bold,
@@ -258,29 +276,34 @@ fun ConsolidateScreen(
                 }
             }
 
-            // Auto mode configuration
+            // Auto mode configuration input (only show when not running)
             if (!isAutoMode && !isConsolidating) {
                 Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Auto Multi-Round Mode Options", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PepepowPrimary)
-                        Text("Auto mode runs multiple rounds sequentially, letting you consolidate many UTXOs safely.", fontSize = 12.sp, color = Color.Gray)
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Auto Multi-Round Options", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PepepowPrimary)
                         
                         OutlinedTextField(
                             value = maxRoundsStr,
                             onValueChange = { maxRoundsStr = it.filter { char -> char.isDigit() } },
-                            label = { Text("Max Rounds Limit (Optional)") },
-                            placeholder = { Text("Unlimited") },
+                            label = { Text("Max Rounds Limit") },
+                            placeholder = { Text("1 (Default)") },
                             modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                             )
                         )
+                        Text(
+                            text = "Use 1–2 rounds for testing. Leaving it blank defaults to 1 round.",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
                     }
                 }
             }
 
-            // Progress Banner
-            if (isConsolidating || isAutoMode || autoState != "idle") {
+            // Active Progress Banner
+            val showProgressBanner = isConsolidating || isAutoMode || autoState == "paused"
+            if (showProgressBanner) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = PepepowSurface),
                     border = BorderStroke(1.dp, PepepowPrimary)
@@ -290,16 +313,26 @@ fun ConsolidateScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        val bannerTitle = when {
+                            isConsolidating -> "Manual Consolidation Running"
+                            autoState == "paused" -> "Auto Consolidation Paused"
+                            else -> "Auto Consolidation Running"
+                        }
+
                         Text(
-                            text = if (isAutoMode) "Auto Consolidation Running" else "Manual Consolidation Running",
+                            text = bannerTitle,
                             fontWeight = FontWeight.Bold,
                             color = PepepowPrimary,
                             fontSize = 15.sp
                         )
-                        CircularProgressIndicator(color = PepepowPrimary)
-                        
-                        if (isAutoMode) {
-                            Text("Round Completed: $autoCompletedRounds", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+
+                        val showSpinner = isConsolidating || (isAutoMode && autoState != "paused")
+                        if (showSpinner) {
+                            CircularProgressIndicator(color = PepepowPrimary)
+                        }
+
+                        if (isAutoMode || autoState == "paused") {
+                            Text("Rounds Completed: $autoCompletedRounds", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                             Text("Phase: $autoState", fontWeight = FontWeight.Medium, color = Color.Gray, fontSize = 13.sp)
                         }
 
@@ -310,17 +343,27 @@ fun ConsolidateScreen(
                             color = Color.DarkGray
                         )
 
-                        if (isAutoMode) {
+                        if (isAutoMode || autoState == "paused") {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Button(
-                                    onClick = { viewModel.pauseAutoConsolidation() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57C00)),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Pause")
+                                if (isAutoMode) {
+                                    Button(
+                                        onClick = { viewModel.pauseAutoConsolidation() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57C00)),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Pause")
+                                    }
+                                } else if (autoState == "paused") {
+                                    Button(
+                                        onClick = { viewModel.resumeAutoConsolidation() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = PepepowPrimary),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Resume")
+                                    }
                                 }
                                 Button(
                                     onClick = { viewModel.cancelAutoConsolidation() },
@@ -335,32 +378,79 @@ fun ConsolidateScreen(
                 }
             }
 
-            // Results / Messages
-            if (!isConsolidating && !isAutoMode && apiMessage != null) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = PepepowSurface),
-                    border = BorderStroke(1.dp, Color.LightGray)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Info, null, tint = PepepowPrimary)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Status Update", fontWeight = FontWeight.Bold, color = PepepowPrimary, fontSize = 14.sp)
+            // Compact Completed / Disabled warnings
+            if (!isConsolidating && !isAutoMode) {
+                when {
+                    utxoCountState != null && utxoCountState != -1 && utxoCountState!! < 2 -> {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                            border = BorderStroke(1.dp, PepepowPrimary)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CheckCircle, null, tint = PepepowPrimary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "No consolidation needed. Your wallet has fewer than 2 eligible UTXOs.",
+                                    fontSize = 13.sp,
+                                    color = Color.DarkGray
+                                )
+                            }
                         }
-                        Text(apiMessage ?: "", fontSize = 13.sp, color = Color.DarkGray)
-                        if (!lastTxid.isNullOrBlank()) {
-                            Text("Last TXID: $lastTxid", fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = Color.Gray)
+                    }
+                    !isKeysAvailable -> {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                            border = BorderStroke(1.dp, Color(0xFFEF5350))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Error, null, tint = Color(0xFFC62828))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Local signing is unavailable. Please back up or import your wallet recovery phrase first.",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFFC62828)
+                                )
+                            }
+                        }
+                    }
+                    utxoCountState == -1 -> {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                            border = BorderStroke(1.dp, Color(0xFFEF5350))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CloudOff, null, tint = Color(0xFFC62828))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "UTXO lookup unavailable. Please check your network connection or API status.",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFFC62828)
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // Estimates & Triggers
-            if (!isConsolidating && !isAutoMode) {
+            // C & D. Estimates & Triggers Card (only visible if eligible UTXOs >= 2 and signing key/API available)
+            if (isEligible && !isConsolidating && !isAutoMode) {
                 Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Consolidation Estimation", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PepepowPrimary)
                         
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Inputs Selected", fontSize = 13.sp, color = Color.Gray)
+                            Text("$selectedInputCount / $utxoCountState UTXOs", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Est. Transaction Size", fontSize = 13.sp, color = Color.Gray)
                             Text("$estSize Bytes", fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -370,7 +460,7 @@ fun ConsolidateScreen(
                             Text("${String.format("%.6f", estFeeDouble)} PEPEW", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
-                        Divider()
+                        Divider(color = Color.LightGray.copy(alpha = 0.5f))
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Button(
@@ -386,7 +476,7 @@ fun ConsolidateScreen(
 
                         OutlinedButton(
                             onClick = {
-                                val limit = maxRoundsStr.toIntOrNull()
+                                val limit = maxRoundsStr.toIntOrNull() ?: 1
                                 viewModel.startAutoConsolidation(selectedPreset, limit)
                             },
                             border = BorderStroke(1.2.dp, PepepowPrimary),
@@ -395,6 +485,28 @@ fun ConsolidateScreen(
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Text("RUN AUTO CONSOLIDATION", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // E. Status Card (always visible to show outcome/errors)
+            if (!isConsolidating && !isAutoMode && (apiMessage != null || !lastTxid.isNullOrBlank())) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = PepepowSurface),
+                    border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Info, null, tint = PepepowPrimary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Status Update", fontWeight = FontWeight.Bold, color = PepepowPrimary, fontSize = 14.sp)
+                        }
+                        if (apiMessage != null) {
+                            Text(apiMessage ?: "", fontSize = 13.sp, color = Color.DarkGray)
+                        }
+                        if (!lastTxid.isNullOrBlank()) {
+                            Text("Last TXID: $lastTxid", fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = Color.Gray)
                         }
                     }
                 }

@@ -69,7 +69,8 @@ fun WalletNavGraph(
                 onNavigateToReceive = { navController.navigate(WalletRoutes.Receive.route) },
                 onNavigateToHistory = { navController.navigate(WalletRoutes.History.route) },
                 onNavigateToSettings = { navController.navigate(WalletRoutes.Settings.route) },
-                onNavigateToApiStatus = { navController.navigate(WalletRoutes.ApiStatus.route) }
+                onNavigateToApiStatus = { navController.navigate(WalletRoutes.ApiStatus.route) },
+                onNavigateToConsolidate = { navController.navigate(WalletRoutes.Consolidate.route) }
             )
         }
         composable(WalletRoutes.Send.route) {

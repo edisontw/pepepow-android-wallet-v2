@@ -23,6 +23,7 @@ class WalletViewModel(
     val isWalletCreated: StateFlow<Boolean> = repository.isWalletCreated
     val isApiMode: StateFlow<Boolean> = repository.isApiMode
     val usdPrice: StateFlow<Double?> = repository.usdPrice
+    val utxoCount: StateFlow<Int?> = repository.utxoCount
 
     fun setApiMode(enabled: Boolean) {
         repository.setApiMode(enabled)

@@ -27,6 +27,7 @@ class WalletConsolidationTest {
         override val transactions = MutableStateFlow<List<Transaction>>(emptyList())
         override val usdPrice = MutableStateFlow<Double?>(null)
         override val isApiMode = MutableStateFlow(true)
+        override val utxoCount = MutableStateFlow<Int?>(null)
 
         override fun createWallet() {}
         override fun confirmBackup() {}
@@ -140,7 +141,7 @@ class WalletConsolidationTest {
         viewModel.performManualConsolidation(80)
         
         assertEquals(0, repo.broadcastCallCount.get())
-        assertTrue(viewModel.apiMessage.value!!.contains("Too few UTXOs"))
+        assertTrue(viewModel.apiMessage.value!!.contains("fewer than 2"))
     }
 
     @Test
@@ -263,5 +264,71 @@ class WalletConsolidationTest {
         assertTrue(postBody.contains(rawTx))
         assertFalse(postBody.contains("mnemonic"))
         assertFalse(postBody.contains("privateKey"))
+    }
+
+    @Test
+    fun testSpinnerIsFalseAfterCompletedOrFailed() = runBlocking {
+        val repo = MockWalletRepository()
+        val viewModel = ConsolidationViewModel(repo)
+        
+        // 1. Initial State: no spinner
+        assertFalse(viewModel.isConsolidating.value)
+        assertFalse(viewModel.isAutoMode.value)
+
+        // 2. Run manual with 1 UTXO -> fails with early exit
+        repo.mockUtxos = mutableListOf(Utxo("tx1", 0, 1_000_000L, "script", 1000L))
+        viewModel.performManualConsolidation(80)
+        
+        // Verify spinner is false
+        assertFalse(viewModel.isConsolidating.value)
+
+        // 3. Run auto with 1 UTXO -> completed cleanly
+        viewModel.runAutoConsolidationLoop(80, 1)
+        
+        // Verify spinner is false
+        assertFalse(viewModel.isAutoMode.value)
+        assertEquals("completed", viewModel.autoState.value)
+    }
+
+    @Test
+    fun testManualConsolidationWithOneUtxo() = runBlocking {
+        val repo = MockWalletRepository()
+        repo.mockUtxos = mutableListOf(Utxo("tx1", 0, 1_000_000L, "script", 1000L))
+        val viewModel = ConsolidationViewModel(repo)
+        
+        viewModel.performManualConsolidation(80)
+        
+        assertEquals(0, repo.broadcastCallCount.get())
+        assertFalse(viewModel.isConsolidating.value)
+        assertTrue(viewModel.apiMessage.value!!.contains("fewer than 2"))
+    }
+
+    @Test
+    fun testAutoConsolidationWithOneUtxo() = runBlocking {
+        val repo = MockWalletRepository()
+        repo.mockUtxos = mutableListOf(Utxo("tx1", 0, 1_000_000L, "script", 1000L))
+        val viewModel = ConsolidationViewModel(repo)
+        
+        viewModel.runAutoConsolidationLoop(80, 1)
+        
+        assertEquals(0, repo.broadcastCallCount.get())
+        assertFalse(viewModel.isAutoMode.value)
+        assertEquals("completed", viewModel.autoState.value)
+        assertTrue(viewModel.autoStatusText.value.contains("fewer than 2"))
+    }
+
+    @Test
+    fun testSuccessfulBroadcastRefreshesUtxoState() = runBlocking {
+        val repo = MockWalletRepository()
+        repo.mockUtxos = mutableListOf(
+            Utxo("11".repeat(32), 0, 5_000_000L, "76a914ab12cd34ef56789012345678901234567890123488ac", 1000L),
+            Utxo("22".repeat(32), 1, 5_000_000L, "76a914ab12cd34ef56789012345678901234567890123488ac", 1000L)
+        )
+        val viewModel = ConsolidationViewModel(repo)
+        
+        viewModel.performManualConsolidation(80)
+        
+        assertEquals(1, repo.broadcastCallCount.get())
+        assertEquals(1, repo.refreshCallCount.get())
     }
 }

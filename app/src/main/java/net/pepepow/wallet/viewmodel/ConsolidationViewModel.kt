@@ -28,6 +28,8 @@ class ConsolidationViewModel(
 
     val balance: StateFlow<Double> = repository.balance
     val address: StateFlow<String> = repository.address
+    val utxoCount: StateFlow<Int?> = repository.utxoCount
+    val mnemonic: StateFlow<String?> = repository.mnemonic
 
     private val _isConsolidating = MutableStateFlow(false)
     val isConsolidating: StateFlow<Boolean> = _isConsolidating.asStateFlow()
@@ -111,7 +113,7 @@ class ConsolidationViewModel(
             }
 
             if (eligibleUtxos.size < 2) {
-                _apiMessage.value = "Too few UTXOs to consolidate (minimum 2 required)."
+                _apiMessage.value = "No consolidation needed. Your wallet has fewer than 2 eligible UTXOs."
                 _isConsolidating.value = false
                 return
             }
@@ -125,7 +127,7 @@ class ConsolidationViewModel(
             // 4. Select up to user-selected cap
             val selectedUtxos = sortedUtxos.take(inputCountCap)
             if (selectedUtxos.size < 2) {
-                _apiMessage.value = "Too few UTXOs selected after filtering."
+                _apiMessage.value = "No consolidation needed. Your wallet has fewer than 2 eligible UTXOs."
                 _isConsolidating.value = false
                 return
             }
@@ -214,7 +216,7 @@ class ConsolidationViewModel(
             while (true) {
                 if (maxRounds != null && _autoCompletedRounds.value >= maxRounds) {
                     _autoState.value = "completed"
-                    _autoStatusText.value = "Auto consolidation completed: max rounds reached."
+                    _autoStatusText.value = "Auto consolidation completed."
                     clearProgress()
                     break
                 }
@@ -252,7 +254,11 @@ class ConsolidationViewModel(
 
                 if (eligibleUtxos.size < 2) {
                     _autoState.value = "completed"
-                    _autoStatusText.value = "Completed: No more eligible UTXOs to consolidate."
+                    _autoStatusText.value = if (_autoCompletedRounds.value > 0) {
+                        "Auto consolidation completed."
+                    } else {
+                        "No consolidation needed. Your wallet has fewer than 2 eligible UTXOs."
+                    }
                     clearProgress()
                     break
                 }
@@ -265,7 +271,11 @@ class ConsolidationViewModel(
                 val selectedUtxos = sortedUtxos.take(roundSize)
                 if (selectedUtxos.size < 2) {
                     _autoState.value = "completed"
-                    _autoStatusText.value = "Completed: Less than 2 UTXOs remaining."
+                    _autoStatusText.value = if (_autoCompletedRounds.value > 0) {
+                        "Auto consolidation completed."
+                    } else {
+                        "No consolidation needed. Your wallet has fewer than 2 eligible UTXOs."
+                    }
                     clearProgress()
                     break
                 }
@@ -278,7 +288,11 @@ class ConsolidationViewModel(
 
                 if (outputSat <= 546L || feeSat >= totalInputSat) {
                     _autoState.value = "completed"
-                    _autoStatusText.value = "Completed: Remaining UTXOs are too small to cover transaction fee."
+                    _autoStatusText.value = if (_autoCompletedRounds.value > 0) {
+                        "Auto consolidation completed."
+                    } else {
+                        "No consolidation needed. Your wallet has fewer than 2 eligible UTXOs."
+                    }
                     clearProgress()
                     break
                 }

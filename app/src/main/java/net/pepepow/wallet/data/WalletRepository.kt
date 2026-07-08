@@ -75,6 +75,7 @@ interface WalletRepository {
     val isWalletCreated: StateFlow<Boolean>
     val transactions: StateFlow<List<Transaction>>
     val usdPrice: StateFlow<Double?>
+    val utxoCount: StateFlow<Int?>
 
     fun createWallet()
     fun confirmBackup()
@@ -143,6 +144,9 @@ class RealWalletRepository(
     private val _usdPrice = MutableStateFlow<Double?>(null)
     override val usdPrice: StateFlow<Double?> = _usdPrice.asStateFlow()
 
+    private val _utxoCount = MutableStateFlow<Int?>(null)
+    override val utxoCount: StateFlow<Int?> = _utxoCount.asStateFlow()
+
     private var lastRefreshAt = 0L
     private var consecutiveRefreshFailures = 0
     private var hasLoadedSuccessfully = false
@@ -173,6 +177,7 @@ class RealWalletRepository(
             _isWalletCreated.value = false
             _balance.value = 0.0
             _transactions.value = emptyList()
+            _utxoCount.value = 0
             _apiMessage.value = "New wallet generated. Please back up your recovery phrase."
         } catch (e: Exception) {
             _apiMessage.value = "Failed to create wallet: ${e.message}"
@@ -195,6 +200,7 @@ class RealWalletRepository(
             _isWalletCreated.value = true
             _balance.value = 0.0
             _transactions.value = emptyList()
+            _utxoCount.value = null
             _apiMessage.value = "Wallet restored successfully."
         } catch (e: Exception) {
             _apiMessage.value = "Failed to restore wallet: ${e.message}"
@@ -216,6 +222,7 @@ class RealWalletRepository(
         _balance.value = 0.0
         _transactions.value = emptyList()
         _usdPrice.value = null
+        _utxoCount.value = null
         lastRefreshAt = 0L
         consecutiveRefreshFailures = 0
         hasLoadedSuccessfully = false
@@ -426,12 +433,17 @@ class RealWalletRepository(
         try {
             val summary = apiClient.getAddressSummary(addr)
             val history = apiClient.getHistory(addr, limit = 50, offset = 0)
+            var utxoSizeVal: Int? = null
             val apiUtxos = try {
-                apiClient.getUtxos(addr)
+                val list = apiClient.getUtxos(addr)
+                utxoSizeVal = list.size
+                list
             } catch (e: Exception) {
                 logDebug("WalletRefresh", "UTXO refresh failed: ${e.message}")
+                utxoSizeVal = -1
                 emptyList()
             }
+            _utxoCount.value = utxoSizeVal
 
             val combinedHistory = (history + summary.history).distinctBy { it.txid }
 
@@ -710,6 +722,9 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
     private val _usdPrice = MutableStateFlow<Double?>(0.000000799)
     override val usdPrice: StateFlow<Double?> = _usdPrice.asStateFlow()
 
+    private val _utxoCount = MutableStateFlow<Int?>(5)
+    override val utxoCount: StateFlow<Int?> = _utxoCount.asStateFlow()
+
     override fun createWallet() {
         val newMnemonic = "pepe frog wallet mock phase seed words never real green crypto"
         val newAddress = "PMockPepepowAddress123456789"
@@ -719,6 +734,7 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         _balance.value = 0.0
         _transactions.value = emptyList()
         _isWalletCreated.value = false
+        _utxoCount.value = 5
         
         prefs.edit().apply {
             putString("mnemonic", newMnemonic)
@@ -739,6 +755,7 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         _balance.value = 0.0
         _transactions.value = emptyList()
         _isWalletCreated.value = true
+        _utxoCount.value = 5
         
         prefs.edit().apply {
             putString("mnemonic", trimmed)
@@ -761,6 +778,7 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
         _balance.value = 0.0
         _transactions.value = emptyList()
         _isWalletCreated.value = false
+        _utxoCount.value = null
         prefs.edit().clear().apply()
     }
 
@@ -833,7 +851,9 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
     }
 
     override suspend fun retryConnection() {}
-    override suspend fun refreshWalletData(force: Boolean) {}
+    override suspend fun refreshWalletData(force: Boolean) {
+        _utxoCount.value = 5
+    }
     override suspend fun checkDiagnostics(): WalletDiagnostics {
         return WalletDiagnostics(
             apiConnected = true,

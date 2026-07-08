@@ -494,13 +494,15 @@ fun DashboardScreen(
     onNavigateToReceive: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToApiStatus: () -> Unit
+    onNavigateToApiStatus: () -> Unit,
+    onNavigateToConsolidate: () -> Unit
 ) {
     val balance by walletViewModel.balance.collectAsState()
     val address by walletViewModel.address.collectAsState()
     val apiState by apiStatusViewModel.apiState.collectAsState()
     val transactions by historyViewModel.transactions.collectAsState()
     val usdPrice by walletViewModel.usdPrice.collectAsState()
+    val utxoCount by walletViewModel.utxoCount.collectAsState()
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
@@ -663,6 +665,21 @@ fun DashboardScreen(
                         fontSize = 14.sp
                     )
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val utxoLabelText = when (utxoCount) {
+                        null -> "Loading..."
+                        -1 -> "Unavailable"
+                        else -> utxoCount.toString()
+                    }
+                    Text(
+                        text = "UTXOs: $utxoLabelText",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Column(
@@ -741,6 +758,79 @@ fun DashboardScreen(
                     label = "History",
                     onClick = onNavigateToHistory
                 )
+            }
+
+            // UTXO Consolidation Shortcut Card
+            val utxoCountVal = utxoCount ?: 0
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PepepowSurface),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 20.dp)
+                    .clickable { onNavigateToConsolidate() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Consolidate UTXOs",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color.DarkGray
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            when {
+                                utxoCount == null -> {
+                                    // Loading state, no badge
+                                }
+                                utxoCountVal >= 20 -> {
+                                    Surface(
+                                        color = Color(0xFFE8F5E9),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Recommended",
+                                            color = PepepowPrimary,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                utxoCountVal < 2 -> {
+                                    Surface(
+                                        color = Color(0xFFECEFF1),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Not needed",
+                                            color = Color.Gray,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Merge small UTXOs into fewer outputs.",
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = Color.Gray
+                    )
+                }
             }
 
             // Recent Transactions Title
