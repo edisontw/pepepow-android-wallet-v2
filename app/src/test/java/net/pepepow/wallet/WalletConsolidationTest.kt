@@ -190,4 +190,78 @@ class WalletConsolidationTest {
         assertFalse(fields.contains("wif"))
         assertFalse(fields.contains("seed"))
     }
+
+    @Test
+    fun testGetRawTransactionParsesDataHexCorrectly() {
+        val client = net.pepepow.wallet.data.PepewApiClient()
+        val response = """
+            {
+              "txid": "abc",
+              "data": {
+                "hex": "0102030405060708090a0b0c0d0e0f1011121314",
+                "txid": "abc"
+              },
+              "source": "electrumx"
+            }
+        """
+        val parsed = client.parseRawTxFromResponse(response)
+        assertEquals("0102030405060708090a0b0c0d0e0f1011121314", parsed)
+    }
+
+    @Test
+    fun testGetRawTransactionParsesTopLevelHexCorrectly() {
+        val client = net.pepepow.wallet.data.PepewApiClient()
+        val response = """
+            {
+              "hex": "0102030405060708090a0b0c0d0e0f1011121314",
+              "txid": "abc"
+            }
+        """
+        val parsed = client.parseRawTxFromResponse(response)
+        assertEquals("0102030405060708090a0b0c0d0e0f1011121314", parsed)
+    }
+
+    @Test
+    fun testGetRawTransactionRejectsEmptyOrMalformedHex() {
+        val client = net.pepepow.wallet.data.PepewApiClient()
+        
+        // Odd length
+        assertNull(client.parseRawTxFromResponse("0102030405060708090a0b0c0d0e0f101112131"))
+        
+        // Too short (less than 20 characters / 10 bytes)
+        assertNull(client.parseRawTxFromResponse("010203040506070809"))
+        
+        // Non-hex
+        assertNull(client.parseRawTxFromResponse("xyz1234567890abcdef01234567890abcdef"))
+        
+        // Empty
+        assertNull(client.parseRawTxFromResponse(""))
+    }
+
+    @Test
+    fun testAutoConsolidationDoesNotRequireRawTx() = runBlocking {
+        val repo = MockWalletRepository()
+        repo.mockUtxos = mutableListOf(
+            Utxo("11".repeat(32), 0, 5_000_000L, "76a914ab12cd34ef56789012345678901234567890123488ac", 1000L),
+            Utxo("22".repeat(32), 1, 5_000_000L, "76a914ab12cd34ef56789012345678901234567890123488ac", 1000L)
+        )
+        
+        val viewModel = ConsolidationViewModel(repo)
+        viewModel.runAutoConsolidationLoop(80, 1)
+        
+        assertEquals(1, repo.broadcastCallCount.get())
+        assertEquals(0, repo.rawTxFetchCount.get())
+    }
+
+    @Test
+    fun testBroadcastPayloadContainsOnlyRawTx() {
+        val rawTx = "0102030405060708090a0b0c0d0e0f1011121314"
+        val cleanHex = rawTx.trim()
+        val postBody = "{\"raw_tx\":\"$cleanHex\"}"
+        
+        assertTrue(postBody.contains("\"raw_tx\""))
+        assertTrue(postBody.contains(rawTx))
+        assertFalse(postBody.contains("mnemonic"))
+        assertFalse(postBody.contains("privateKey"))
+    }
 }

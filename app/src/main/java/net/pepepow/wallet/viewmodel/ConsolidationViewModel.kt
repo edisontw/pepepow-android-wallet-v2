@@ -149,18 +149,7 @@ class ConsolidationViewModel(
                 return
             }
 
-            // 6. Fetch previous raw transactions with bounded concurrency (4)
-            _apiMessage.value = "Fetching raw inputs (concurrency: 4)..."
-            val semaphore = Semaphore(4)
-            val rawTxHexMap = withContext(Dispatchers.IO) {
-                selectedUtxos.map { utxo ->
-                    async {
-                        semaphore.withPermit {
-                            utxo.txid to repository.getRawTransaction(utxo.txid)
-                        }
-                    }
-                }.awaitAll().toMap()
-            }
+            // 6. Fetch previous raw transactions (omitted in Option A as unused by TransactionBuilder)
 
             // 7. Local key derivation & signing
             _apiMessage.value = "Signing locally..."
@@ -294,30 +283,7 @@ class ConsolidationViewModel(
                     break
                 }
 
-                _autoState.value = "fetching raw tx"
-                _autoStatusText.value = "Round ${_autoCompletedRounds.value + 1}: Fetching raw transactions (concurrency: 4)..."
-                val semaphore = Semaphore(4)
-                try {
-                    withContext(Dispatchers.IO) {
-                        selectedUtxos.map { utxo ->
-                            async {
-                                semaphore.withPermit {
-                                    repository.getRawTransaction(utxo.txid)
-                                }
-                            }
-                        }.awaitAll()
-                    }
-                } catch (e: Exception) {
-                    consecutiveFailures++
-                    if (consecutiveFailures >= maxFailures) {
-                        _autoState.value = "failed"
-                        _autoStatusText.value = "Repeated failures fetching raw transactions. Stopped."
-                        break
-                    }
-                    _autoStatusText.value = "Error fetching raw transactions. Retrying in 10s... ($consecutiveFailures/$maxFailures)"
-                    delay(10_000)
-                    continue
-                }
+                // Fetching raw transactions (omitted in Option A as unused by TransactionBuilder)
 
                 _autoState.value = "signing"
                 _autoStatusText.value = "Round ${_autoCompletedRounds.value + 1}: Signing transaction locally..."

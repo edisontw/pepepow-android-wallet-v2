@@ -142,13 +142,56 @@ class PepewApiClient(
         result
     }
 
+    fun parseRawTxFromResponse(body: String): String? {
+        val clean = body.trim()
+        
+        // 8. if body itself is plain raw hex, accept it
+        if (clean.matches(Regex("^[0-9a-fA-F]{20,}$")) && clean.length % 2 == 0) {
+            return clean.lowercase(Locale.US)
+        }
+        
+        // 1-7. Use regex to find any key-value pairs matching hex values of length >= 20
+        val pattern = Regex("\"(?:hex|raw_tx|rawTx|raw)\"\\s*:\\s*\"([0-9a-fA-F]{20,})\"")
+        val match = pattern.find(clean)
+        if (match != null) {
+            val hexVal = match.groupValues[1]
+            if (hexVal.length % 2 == 0) {
+                return hexVal.lowercase(Locale.US)
+            }
+        }
+        
+        try {
+            val json = JSONObject(clean)
+            
+            // Check top level
+            val topHex = listOf("hex", "raw_tx", "rawTx").firstNotNullOfOrNull { key ->
+                json.optString(key, "").takeIf { it.isNotBlank() }
+            }
+            if (topHex != null && topHex.matches(Regex("^[0-9a-fA-F]{20,}$")) && topHex.length % 2 == 0) {
+                return topHex.lowercase(Locale.US)
+            }
+            
+            // Check data object
+            val dataObj = json.optJSONObject("data")
+            if (dataObj != null) {
+                val dataHex = listOf("hex", "raw", "raw_tx", "rawTx").firstNotNullOfOrNull { key ->
+                    dataObj.optString(key, "").takeIf { it.isNotBlank() }
+                }
+                if (dataHex != null && dataHex.matches(Regex("^[0-9a-fA-F]{20,}$")) && dataHex.length % 2 == 0) {
+                    return dataHex.lowercase(Locale.US)
+                }
+            }
+        } catch (_: Exception) {}
+        
+        return null
+    }
+
     suspend fun getRawTransaction(txid: String): String = withContext(Dispatchers.IO) {
         val safeTxid = encodePathSegment(txid)
         val body = requestHttp("/api/wallet/tx/$safeTxid?raw=1")
-        val json = JSONObject(body)
-        val hex = json.optString("hex", json.optString("raw_tx", "")).trim()
-        if (hex.isBlank()) {
-            throw PepewApiException(500, "Hex is empty in transaction response")
+        val hex = parseRawTxFromResponse(body)
+        if (hex == null) {
+            throw PepewApiException(500, "Failed to parse raw transaction hex from response")
         }
         hex
     }
