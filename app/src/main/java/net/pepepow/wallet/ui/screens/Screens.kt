@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.pepepow.wallet.data.ApiState
 import net.pepepow.wallet.data.Transaction
+import net.pepepow.wallet.data.getConsolidationRecommendationBadge
 import net.pepepow.wallet.viewmodel.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -783,44 +784,26 @@ fun DashboardScreen(
                                 fontSize = 14.sp,
                                 color = Color.DarkGray
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            when {
-                                utxoCount == null -> {
-                                    // Loading state, no badge
-                                }
-                                utxoCountVal >= 20 -> {
-                                    Surface(
-                                        color = Color(0xFFE8F5E9),
-                                        shape = RoundedCornerShape(4.dp)
-                                    ) {
-                                        Text(
-                                            text = "Recommended",
-                                            color = PepepowPrimary,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                utxoCountVal < 2 -> {
-                                    Surface(
-                                        color = Color(0xFFECEFF1),
-                                        shape = RoundedCornerShape(4.dp)
-                                    ) {
-                                        Text(
-                                            text = "Not needed",
-                                            color = Color.Gray,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
+                            val badge = getConsolidationRecommendationBadge(utxoCount)
+                            if (badge != null) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    color = if (badge == "Recommended") Color(0xFFE8F5E9) else Color(0xFFECEFF1),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = badge,
+                                        color = if (badge == "Recommended") PepepowPrimary else Color.Gray,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
                                 }
                             }
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Merge small UTXOs into fewer outputs.",
+                            text = "Merge many small UTXOs into fewer outputs.",
                             fontSize = 12.sp,
                             color = Color.Gray
                         )

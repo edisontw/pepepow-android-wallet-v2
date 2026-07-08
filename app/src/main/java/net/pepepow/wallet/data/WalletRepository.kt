@@ -93,7 +93,7 @@ interface WalletRepository {
     // Consolidation methods
     suspend fun getRawTransaction(txid: String): String
     suspend fun fetchUtxos(address: String): List<Utxo>
-    suspend fun broadcastConsolidationTx(rawHex: String): String
+    suspend fun broadcastConsolidationTx(rawHex: String, selectedUtxos: List<Utxo>, feeSat: Long): String
     fun markOutpointsSpent(outpoints: List<Pair<String, Int>>)
     fun isOutpointSpent(txid: String, vout: Int): Boolean
     fun getConsolidationProgress(): ConsolidationProgress?
@@ -436,13 +436,20 @@ class RealWalletRepository(
             var utxoSizeVal: Int? = null
             val apiUtxos = try {
                 val list = apiClient.getUtxos(addr)
-                utxoSizeVal = list.size
-                list
+                val mappedUtxos = list.map { Utxo(it.txid, it.vout, it.satoshis, it.scriptPubKey, it.height) }
+                
+                // Reconcile recently spent outpoints with the fetched apiUtxos:
+                reconcileRecentlySpentOutpoints(recentlySpentOutpoints, mappedUtxos)
+
+                mappedUtxos
             } catch (e: Exception) {
                 logDebug("WalletRefresh", "UTXO refresh failed: ${e.message}")
                 utxoSizeVal = -1
                 emptyList()
             }
+
+            val eligibleDisplayUtxos = filterEligibleDisplayUtxos(apiUtxos, recentlySpentOutpoints)
+            utxoSizeVal = if (utxoSizeVal == -1) -1 else eligibleDisplayUtxos.size
             _utxoCount.value = utxoSizeVal
 
             val combinedHistory = (history + summary.history).distinctBy { it.txid }
@@ -498,8 +505,20 @@ class RealWalletRepository(
             val summaryBalance = summary.confirmedPepew + summary.unconfirmedPepew
             val spendableUtxoBalance = apiUtxos
                 .takeIf { it.isNotEmpty() }
-                ?.sumOf { it.satoshis }
-                ?.div(ATOMS_PER_PEPEW)
+                ?.let { eligibleDisplayUtxos.sumOf { it.satoshis } / ATOMS_PER_PEPEW }
+
+            val adjustedUtxoBalance = spendableUtxoBalance?.let {
+                calculateAdjustedBalance(
+                    eligibleDisplayUtxos = eligibleDisplayUtxos,
+                    unresolvedLocalPending = unresolvedLocalPending,
+                    pendingTxInputs = pendingTxInputs,
+                    apiUtxos = apiUtxos,
+                    recentlySpentOutpoints = recentlySpentOutpoints,
+                    atomsPerPepew = ATOMS_PER_PEPEW,
+                    defaultFeeAtoms = DEFAULT_FEE_ATOMS
+                )
+            }
+
             val unresolvedPendingSpend = pendingSpend(unresolvedLocalPending)
             val balanceBeforeRefresh = _balance.value
             val adjustedSummaryBalance = if (
@@ -511,23 +530,11 @@ class RealWalletRepository(
                 summaryBalance
             }
 
-            val adjustedUtxoBalance = spendableUtxoBalance?.let { utxoBal ->
-                val pendingSpendNotReflectedInUtxos = unresolvedLocalPending
-                    .filter { pendingTx ->
-                        val inputs = pendingTxInputs[pendingTx.txId]
-                        if (inputs != null) {
-                            inputs.any { (txId, vout) ->
-                                apiUtxos.any { utxo -> utxo.txid == txId && utxo.vout == vout }
-                            }
-                        } else {
-                            true
-                        }
-                    }
-                    .sumOf { it.localPendingSpend() }
-                maxOf(0.0, utxoBal - pendingSpendNotReflectedInUtxos)
+            val refreshedBalance = if (recentlySpentOutpoints.isNotEmpty() && adjustedUtxoBalance != null) {
+                adjustedUtxoBalance
+            } else {
+                adjustedUtxoBalance ?: adjustedSummaryBalance
             }
-
-            val refreshedBalance = adjustedUtxoBalance ?: adjustedSummaryBalance
 
             _balance.value = maxOf(0.0, refreshedBalance)
             _transactions.value = merged
@@ -644,8 +651,39 @@ class RealWalletRepository(
         return apiUtxos.map { Utxo(it.txid, it.vout, it.satoshis, it.scriptPubKey, it.height) }
     }
 
-    override suspend fun broadcastConsolidationTx(rawHex: String): String {
-        return apiClient.broadcastTransaction(rawHex)
+    override suspend fun broadcastConsolidationTx(
+        rawHex: String,
+        selectedUtxos: List<Utxo>,
+        feeSat: Long
+    ): String = withContext(Dispatchers.IO) {
+        val txid = apiClient.broadcastTransaction(rawHex)
+        val broadcastTime = System.currentTimeMillis()
+        
+        // Mark outpoints spent locally immediately
+        markOutpointsSpent(selectedUtxos.map { it.txid to it.vout })
+        
+        txMetadataManager.setFirstSeenTimestamp(txid, broadcastTime)
+        if (txMetadataManager.getInsertionOrder(txid) == 0L) {
+            txMetadataManager.setInsertionOrder(txid, txMetadataManager.getNextSequence())
+        }
+        pendingTxInputs[txid] = selectedUtxos.map { it.txid to it.vout }
+
+        val pendingTx = Transaction(
+            txId = txid,
+            address = _address.value,
+            amount = feeSat / ATOMS_PER_PEPEW, // self spend amount is the fee
+            timestamp = broadcastTime,
+            isSend = true,
+            isPending = true,
+            isSelfTransfer = true
+        )
+        
+        val alreadyKnown = _transactions.value.any { it.txId == txid }
+        if (!alreadyKnown) {
+            _transactions.value = sortTransactions(listOf(pendingTx) + _transactions.value)
+            _balance.value = maxOf(0.0, _balance.value - feeSat / ATOMS_PER_PEPEW)
+        }
+        txid
     }
 
     override fun markOutpointsSpent(outpoints: List<Pair<String, Int>>) {
@@ -871,7 +909,11 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
     // Consolidation stubs for preview/mock repository
     override suspend fun getRawTransaction(txid: String): String = ""
     override suspend fun fetchUtxos(address: String): List<Utxo> = emptyList()
-    override suspend fun broadcastConsolidationTx(rawHex: String): String = ""
+    override suspend fun broadcastConsolidationTx(
+        rawHex: String,
+        selectedUtxos: List<Utxo>,
+        feeSat: Long
+    ): String = ""
     override fun markOutpointsSpent(outpoints: List<Pair<String, Int>>) {}
     override fun isOutpointSpent(txid: String, vout: Int): Boolean = false
     override fun getConsolidationProgress(): ConsolidationProgress? = null
@@ -954,4 +996,107 @@ class TxMetadataManager(private val prefs: android.content.SharedPreferences) {
     fun clear() {
         prefs.edit().clear().apply()
     }
+}
+
+fun getConsolidationRecommendationBadge(utxoCount: Int?): String? {
+    if (utxoCount == null) return null
+    return when {
+        utxoCount >= 400 -> "Recommended"
+        utxoCount < 2 -> "Not needed"
+        else -> null
+    }
+}
+
+fun filterEligibleDisplayUtxos(
+    apiUtxos: List<Utxo>,
+    recentlySpentOutpoints: Map<String, Long>,
+    now: Long = System.currentTimeMillis(),
+    expiryMs: Long = 10 * 60 * 1000L
+): List<Utxo> {
+    return apiUtxos.filterNot { utxo ->
+        val timestamp = recentlySpentOutpoints["${utxo.txid}:${utxo.vout}"]
+        timestamp != null && (now - timestamp) < expiryMs
+    }
+}
+
+fun reconcileRecentlySpentOutpoints(
+    recentlySpentOutpoints: MutableMap<String, Long>,
+    apiUtxos: List<Utxo>,
+    now: Long = System.currentTimeMillis(),
+    expiryMs: Long = 10 * 60 * 1000L
+) {
+    val apiOutpointKeys = apiUtxos.map { "${it.txid}:${it.vout}" }.toSet()
+    val keysToRemove = recentlySpentOutpoints.filter { (key, timestamp) ->
+        (now - timestamp >= expiryMs) || (key !in apiOutpointKeys)
+    }.keys
+    keysToRemove.forEach { recentlySpentOutpoints.remove(it) }
+}
+
+fun calculateAdjustedBalance(
+    eligibleDisplayUtxos: List<Utxo>,
+    unresolvedLocalPending: List<Transaction>,
+    pendingTxInputs: Map<String, List<Pair<String, Int>>>,
+    apiUtxos: List<Utxo>,
+    recentlySpentOutpoints: Map<String, Long>,
+    now: Long = System.currentTimeMillis(),
+    expiryMs: Long = 10 * 60 * 1000L,
+    atomsPerPepew: Double = 100_000_000.0,
+    defaultFeeAtoms: Long = 100_000L
+): Double {
+    val spendableUtxoBalance = eligibleDisplayUtxos.sumOf { it.satoshis } / atomsPerPepew
+    
+    val inFlightBalance = unresolvedLocalPending.sumOf { pendingTx ->
+        if (apiUtxos.any { it.txid == pendingTx.txId }) {
+            0L
+        } else {
+            val inputs = pendingTxInputs[pendingTx.txId]
+            if (inputs != null) {
+                val matchingInputsValue = apiUtxos
+                    .filter { utxo -> 
+                        val timestamp = recentlySpentOutpoints["${utxo.txid}:${utxo.vout}"]
+                        inputs.any { it.first == utxo.txid && it.second == utxo.vout } && 
+                        timestamp != null && (now - timestamp) < expiryMs
+                    }
+                    .sumOf { it.satoshis }
+                if (matchingInputsValue > 0L) {
+                    val feeSat = if (pendingTx.isSelfTransfer) {
+                        Math.round(pendingTx.amount * atomsPerPepew)
+                    } else {
+                        defaultFeeAtoms
+                    }
+                    if (pendingTx.isSelfTransfer) {
+                        maxOf(0L, matchingInputsValue - feeSat)
+                    } else {
+                        val amountSat = Math.round(pendingTx.amount * atomsPerPepew)
+                        maxOf(0L, matchingInputsValue - amountSat - feeSat)
+                    }
+                } else {
+                    0L
+                }
+            } else {
+                0L
+            }
+        }
+    } / atomsPerPepew
+
+    val pendingSpendNotReflectedInUtxos = unresolvedLocalPending
+        .filter { pendingTx ->
+            val inputs = pendingTxInputs[pendingTx.txId]
+            if (inputs != null) {
+                inputs.any { (txId, vout) ->
+                    val timestamp = recentlySpentOutpoints["$txId:$vout"]
+                    val isSpent = timestamp != null && (now - timestamp) < expiryMs
+                    apiUtxos.any { utxo -> utxo.txid == txId && utxo.vout == vout && !isSpent }
+                }
+            } else {
+                true
+            }
+        }
+        .sumOf { pendingTx ->
+            if (!pendingTx.isPending || !pendingTx.isSend) 0.0
+            else if (pendingTx.isSelfTransfer) pendingTx.amount
+            else pendingTx.amount + defaultFeeAtoms / atomsPerPepew
+        }
+
+    return maxOf(0.0, spendableUtxoBalance + inFlightBalance - pendingSpendNotReflectedInUtxos)
 }

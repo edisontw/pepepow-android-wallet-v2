@@ -8,6 +8,10 @@ import net.pepepow.wallet.data.SendResult
 import net.pepepow.wallet.data.Transaction
 import net.pepepow.wallet.data.WalletDiagnostics
 import net.pepepow.wallet.data.WalletRepository
+import net.pepepow.wallet.data.getConsolidationRecommendationBadge
+import net.pepepow.wallet.data.filterEligibleDisplayUtxos
+import net.pepepow.wallet.data.reconcileRecentlySpentOutpoints
+import net.pepepow.wallet.data.calculateAdjustedBalance
 import net.pepepow.wallet.domain.transaction.Utxo
 import net.pepepow.wallet.viewmodel.ConsolidationViewModel
 import org.junit.Assert.*
@@ -65,9 +69,14 @@ class WalletConsolidationTest {
             return mockUtxos
         }
 
-        override suspend fun broadcastConsolidationTx(rawHex: String): String {
+        override suspend fun broadcastConsolidationTx(
+            rawHex: String,
+            selectedUtxos: List<Utxo>,
+            feeSat: Long
+        ): String {
             broadcastCallCount.incrementAndGet()
             lastBroadcastHex = rawHex
+            markOutpointsSpent(selectedUtxos.map { it.txid to it.vout })
             return "mock_txid_${System.currentTimeMillis()}"
         }
 
@@ -330,5 +339,120 @@ class WalletConsolidationTest {
         
         assertEquals(1, repo.broadcastCallCount.get())
         assertEquals(1, repo.refreshCallCount.get())
+    }
+
+    @Test
+    fun testConsolidationRecommendationBadge() {
+        assertEquals("Not needed", getConsolidationRecommendationBadge(1))
+        assertNull(getConsolidationRecommendationBadge(20))
+        assertNull(getConsolidationRecommendationBadge(399))
+        assertEquals("Recommended", getConsolidationRecommendationBadge(400))
+        assertEquals("Recommended", getConsolidationRecommendationBadge(401))
+        assertNull(getConsolidationRecommendationBadge(null))
+    }
+
+    @Test
+    fun testRecentlySpentOutpointExclusionAndReconciliation() {
+        val now = System.currentTimeMillis()
+        val apiUtxos = listOf(
+            Utxo("tx1", 0, 500_000, "script", 1000),
+            Utxo("tx2", 1, 500_000, "script", 1000),
+            Utxo("tx3", 2, 500_000, "script", 1000)
+        )
+        
+        val recentlySpent = mutableMapOf(
+            "tx1:0" to now, // active
+            "tx2:1" to now - (12 * 60 * 1000L) // expired (> 10 mins)
+        )
+
+        // 1. Exclude recently spent active outpoints
+        val eligible = filterEligibleDisplayUtxos(apiUtxos, recentlySpent, now = now)
+        assertEquals(2, eligible.size)
+        assertTrue(eligible.any { it.txid == "tx2" && it.vout == 1 }) // expired is included
+        assertTrue(eligible.any { it.txid == "tx3" && it.vout == 2 })
+        assertFalse(eligible.any { it.txid == "tx1" && it.vout == 0 }) // active is excluded
+
+        // 2. Reconcile recently spent outpoints:
+        // - "tx1:0" is active and returned by API -> kept
+        // - "tx2:1" is expired -> removed
+        // - Let's add an outpoint "tx4:0" that is active but NOT returned by API -> removed
+        recentlySpent["tx4:0"] = now
+        reconcileRecentlySpentOutpoints(recentlySpent, apiUtxos, now = now)
+        
+        assertTrue(recentlySpent.containsKey("tx1:0"))
+        assertFalse(recentlySpent.containsKey("tx2:1"))
+        assertFalse(recentlySpent.containsKey("tx4:0"))
+    }
+
+    @Test
+    fun testSuccessfulConsolidationRefreshDoesNotDoubleBalance() {
+        val now = System.currentTimeMillis()
+        val oldInput1 = Utxo("tx_old1", 0, 10_000_000, "script", 1000)
+        val oldInput2 = Utxo("tx_old2", 0, 20_000_000, "script", 1000)
+        val fee = 100_000L
+        val outputVal = oldInput1.satoshis + oldInput2.satoshis - fee // 29,900,000 satoshis (0.299 PEPEW)
+        
+        val newOutput = Utxo("tx_new", 0, outputVal, "script", 0)
+
+        // Situation: indexer returns BOTH old inputs and new output (doubled state in API)
+        val apiUtxos = listOf(oldInput1, oldInput2, newOutput)
+        val recentlySpent = mapOf(
+            "tx_old1:0" to now,
+            "tx_old2:0" to now
+        )
+
+        val eligible = filterEligibleDisplayUtxos(apiUtxos, recentlySpent, now = now)
+        assertEquals(1, eligible.size)
+        assertEquals("tx_new", eligible[0].txid) // old inputs filtered out
+
+        // Pending transaction for consolidation self-spend (amount is fee)
+        val pendingTx = Transaction(
+            txId = "tx_new",
+            address = "my_addr",
+            amount = fee / 100_000_000.0, // 0.001
+            timestamp = now,
+            isSend = true,
+            isPending = true,
+            isSelfTransfer = true
+        )
+
+        val unresolvedPending = listOf(pendingTx)
+        val pendingTxInputs = mapOf(
+            "tx_new" to listOf("tx_old1" to 0, "tx_old2" to 0)
+        )
+
+        // Calculate adjusted balance
+        val adjustedBalance = calculateAdjustedBalance(
+            eligibleDisplayUtxos = eligible,
+            unresolvedLocalPending = unresolvedPending,
+            pendingTxInputs = pendingTxInputs,
+            apiUtxos = apiUtxos,
+            recentlySpentOutpoints = recentlySpent,
+            now = now
+        )
+
+        // Expected balance: since new output is already returned, the transaction's outputs have landed,
+        // so it skips the in-flight balance additions. The display balance is simply the spendable UTXO balance.
+        // spendableUtxoBalance = 0.299 PEPEW.
+        assertEquals(0.299, adjustedBalance, 0.000001)
+
+        // Situation: indexer only returns the old inputs (new output not returned yet)
+        val apiUtxosOldOnly = listOf(oldInput1, oldInput2)
+        val eligibleOldOnly = filterEligibleDisplayUtxos(apiUtxosOldOnly, recentlySpent, now = now)
+        assertEquals(0, eligibleOldOnly.size)
+
+        val adjustedBalanceOldOnly = calculateAdjustedBalance(
+            eligibleDisplayUtxos = eligibleOldOnly,
+            unresolvedLocalPending = unresolvedPending,
+            pendingTxInputs = pendingTxInputs,
+            apiUtxos = apiUtxosOldOnly,
+            recentlySpentOutpoints = recentlySpent,
+            now = now
+        )
+
+        // Expected balance: spendableUtxoBalance = 0.0
+        // inFlightBalance = matchingInputsValue - fee = 0.3 - 0.001 = 0.299
+        // adjustedBalance = 0.0 + 0.299 = 0.299 PEPEW.
+        assertEquals(0.299, adjustedBalanceOldOnly, 0.000001)
     }
 }

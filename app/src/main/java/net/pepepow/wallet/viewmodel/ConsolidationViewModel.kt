@@ -169,7 +169,7 @@ class ConsolidationViewModel(
 
             // 8. Broadcast
             _apiMessage.value = "Broadcasting..."
-            val txid = repository.broadcastConsolidationTx(rawTxHex)
+            val txid = repository.broadcastConsolidationTx(rawTxHex, selectedUtxos, feeSat)
 
             // 9. Mark spent outpoints locally
             repository.markOutpointsSpent(selectedUtxos.map { it.txid to it.vout })
@@ -321,7 +321,7 @@ class ConsolidationViewModel(
                 _autoState.value = "broadcasting"
                 _autoStatusText.value = "Round ${_autoCompletedRounds.value + 1}: Broadcasting transaction..."
                 val txid = try {
-                    repository.broadcastConsolidationTx(rawTxHex)
+                    repository.broadcastConsolidationTx(rawTxHex, selectedUtxos, feeSat)
                 } catch (e: Exception) {
                     consecutiveFailures++
                     if (consecutiveFailures >= maxFailures) {
