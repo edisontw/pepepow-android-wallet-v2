@@ -11,4 +11,5 @@ sealed class WalletRoutes(val route: String) {
     object History : WalletRoutes("history")
     object Settings : WalletRoutes("settings")
     object ApiStatus : WalletRoutes("api_status")
+    object Consolidate : WalletRoutes("consolidate")
 }

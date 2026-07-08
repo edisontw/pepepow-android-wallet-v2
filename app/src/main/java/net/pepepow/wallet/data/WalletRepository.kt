@@ -57,6 +57,14 @@ data class WalletDiagnostics(
     val lastSendError: String?
 )
 
+data class ConsolidationProgress(
+    val mode: String,
+    val roundSize: Int,
+    val completedRounds: Int,
+    val lastTxid: String,
+    val updatedTimestamp: Long
+)
+
 interface WalletRepository {
     val balance: StateFlow<Double>
     val address: StateFlow<String>
@@ -80,6 +88,15 @@ interface WalletRepository {
     fun requestMockFaucet()
     val isApiMode: StateFlow<Boolean>
     fun setApiMode(enabled: Boolean)
+
+    // Consolidation methods
+    suspend fun getRawTransaction(txid: String): String
+    suspend fun fetchUtxos(address: String): List<Utxo>
+    suspend fun broadcastConsolidationTx(rawHex: String): String
+    fun markOutpointsSpent(outpoints: List<Pair<String, Int>>)
+    fun isOutpointSpent(txid: String, vout: Int): Boolean
+    fun getConsolidationProgress(): ConsolidationProgress?
+    fun saveConsolidationProgress(progress: ConsolidationProgress?)
 }
 
 /**
@@ -96,6 +113,8 @@ class RealWalletRepository(
     private var _lastSendError: String? = null
     private val txMetadataManager = TxMetadataManager(context.getSharedPreferences("wallet_tx_metadata", Context.MODE_PRIVATE))
     private val pendingTxInputs = java.util.concurrent.ConcurrentHashMap<String, List<Pair<String, Int>>>()
+    private val recentlySpentOutpoints = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val consolidationPrefs = context.getSharedPreferences("consolidation_prefs", Context.MODE_PRIVATE)
 
     private val _isWalletCreated = MutableStateFlow(secureStorage.isWalletCreated())
     override val isWalletCreated: StateFlow<Boolean> = _isWalletCreated.asStateFlow()
@@ -603,6 +622,56 @@ class RealWalletRepository(
             }
         }
     }
+
+    override suspend fun getRawTransaction(txid: String): String {
+        return apiClient.getRawTransaction(txid)
+    }
+
+    override suspend fun fetchUtxos(address: String): List<Utxo> {
+        val apiUtxos = apiClient.getUtxos(address)
+        return apiUtxos.map { Utxo(it.txid, it.vout, it.satoshis, it.scriptPubKey, it.height) }
+    }
+
+    override suspend fun broadcastConsolidationTx(rawHex: String): String {
+        return apiClient.broadcastTransaction(rawHex)
+    }
+
+    override fun markOutpointsSpent(outpoints: List<Pair<String, Int>>) {
+        val now = System.currentTimeMillis()
+        outpoints.forEach { (txid, vout) ->
+            recentlySpentOutpoints["$txid:$vout"] = now
+        }
+    }
+
+    override fun isOutpointSpent(txid: String, vout: Int): Boolean {
+        val timestamp = recentlySpentOutpoints["$txid:$vout"] ?: return false
+        val tenMinutes = 10 * 60 * 1000L
+        return (System.currentTimeMillis() - timestamp) < tenMinutes
+    }
+
+    override fun getConsolidationProgress(): ConsolidationProgress? {
+        val mode = consolidationPrefs.getString("mode", null) ?: return null
+        val roundSize = consolidationPrefs.getInt("round_size", 80)
+        val completedRounds = consolidationPrefs.getInt("completed_rounds", 0)
+        val lastTxid = consolidationPrefs.getString("last_txid", "") ?: ""
+        val updatedTimestamp = consolidationPrefs.getLong("updated_timestamp", 0L)
+        return ConsolidationProgress(mode, roundSize, completedRounds, lastTxid, updatedTimestamp)
+    }
+
+    override fun saveConsolidationProgress(progress: ConsolidationProgress?) {
+        if (progress == null) {
+            consolidationPrefs.edit().clear().apply()
+        } else {
+            consolidationPrefs.edit().apply {
+                putString("mode", progress.mode)
+                putInt("round_size", progress.roundSize)
+                putInt("completed_rounds", progress.completedRounds)
+                putString("last_txid", progress.lastTxid)
+                putLong("updated_timestamp", progress.updatedTimestamp)
+                apply()
+            }
+        }
+    }
 }
 
 /**
@@ -778,6 +847,15 @@ class FakeWalletRepository(private val context: Context) : WalletRepository {
     }
     override fun setApiState(state: ApiState) {}
     override fun setApiMode(enabled: Boolean) {}
+
+    // Consolidation stubs for preview/mock repository
+    override suspend fun getRawTransaction(txid: String): String = ""
+    override suspend fun fetchUtxos(address: String): List<Utxo> = emptyList()
+    override suspend fun broadcastConsolidationTx(rawHex: String): String = ""
+    override fun markOutpointsSpent(outpoints: List<Pair<String, Int>>) {}
+    override fun isOutpointSpent(txid: String, vout: Int): Boolean = false
+    override fun getConsolidationProgress(): ConsolidationProgress? = null
+    override fun saveConsolidationProgress(progress: ConsolidationProgress?) {}
 
     private fun saveTransactions(transactions: List<Transaction>) {
         val array = JSONArray()

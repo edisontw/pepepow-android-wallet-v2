@@ -15,7 +15,8 @@ fun WalletNavGraph(
     walletViewModel: WalletViewModel,
     sendViewModel: SendViewModel,
     historyViewModel: HistoryViewModel,
-    apiStatusViewModel: ApiStatusViewModel
+    apiStatusViewModel: ApiStatusViewModel,
+    consolidationViewModel: ConsolidationViewModel
 ) {
     val isWalletCreated by walletViewModel.isWalletCreated.collectAsState()
     val startDestination = if (isWalletCreated) WalletRoutes.Dashboard.route else WalletRoutes.Welcome.route
@@ -94,6 +95,7 @@ fun WalletNavGraph(
             SettingsScreen(
                 walletViewModel = walletViewModel,
                 onNavigateBack = { navController.popBackStack() },
+                onNavigateToConsolidate = { navController.navigate(WalletRoutes.Consolidate.route) },
                 onResetWallet = {
                     walletViewModel.clearWallet()
                     navController.navigate(WalletRoutes.Welcome.route) {
@@ -106,6 +108,12 @@ fun WalletNavGraph(
             ApiStatusScreen(
                 walletViewModel = walletViewModel,
                 apiStatusViewModel = apiStatusViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        composable(WalletRoutes.Consolidate.route) {
+            ConsolidateScreen(
+                viewModel = consolidationViewModel,
                 onNavigateBack = { navController.popBackStack() }
             )
         }

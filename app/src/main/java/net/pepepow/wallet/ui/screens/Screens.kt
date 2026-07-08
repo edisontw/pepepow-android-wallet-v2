@@ -1433,6 +1433,7 @@ fun HistoryScreen(
 fun SettingsScreen(
     walletViewModel: WalletViewModel,
     onNavigateBack: () -> Unit,
+    onNavigateToConsolidate: () -> Unit,
     onResetWallet: () -> Unit
 ) {
     var showSeedPrompt by remember { mutableStateOf(false) }
@@ -1713,6 +1714,35 @@ fun SettingsScreen(
                             color = Color(0xFFE53935),
                             lineHeight = 14.sp
                         )
+                    }
+                }
+
+                // Section 4: Advanced Tools
+                Card(colors = CardDefaults.cardColors(containerColor = PepepowSurface)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Advanced Tools",
+                            fontWeight = FontWeight.Bold,
+                            color = PepepowPrimary,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigateToConsolidate() }
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Build, null, tint = Color.Gray)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Consolidate UTXOs", fontSize = 14.sp)
+                            }
+                            Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
+                        }
                     }
                 }
             }

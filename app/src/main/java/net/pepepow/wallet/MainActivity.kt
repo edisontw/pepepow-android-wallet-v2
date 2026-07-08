@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
                     val sendViewModel: SendViewModel = viewModel { SendViewModel(repository) }
                     val historyViewModel: HistoryViewModel = viewModel { HistoryViewModel(repository) }
                     val apiStatusViewModel: ApiStatusViewModel = viewModel { ApiStatusViewModel(repository) }
+                    val consolidationViewModel: ConsolidationViewModel = viewModel { ConsolidationViewModel(repository) }
 
                     val navController = rememberNavController()
 
@@ -38,7 +39,8 @@ class MainActivity : ComponentActivity() {
                         walletViewModel = walletViewModel,
                         sendViewModel = sendViewModel,
                         historyViewModel = historyViewModel,
-                        apiStatusViewModel = apiStatusViewModel
+                        apiStatusViewModel = apiStatusViewModel,
+                        consolidationViewModel = consolidationViewModel
                     )
                 }
             }

@@ -4,8 +4,10 @@ data class Utxo(
     val txid: String,
     val vout: Int,
     val satoshis: Long,
-    val scriptPubKey: String
+    val scriptPubKey: String,
+    val height: Long = 0L
 )
+
 
 data class TransactionInput(
     val txid: String,

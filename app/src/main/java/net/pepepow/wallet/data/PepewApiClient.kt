@@ -127,9 +127,30 @@ class PepewApiClient(
                         item.optString("script", fallbackScriptPubKey)))).trim()
             if (scriptPubKey.isBlank()) continue
 
-            result.add(ApiUtxo(txid, vout, satoshis, scriptPubKey))
+            val height = when {
+                item.has("height") -> item.optLong("height", 0L)
+                item.has("block_height") -> item.optLong("block_height", 0L)
+                item.has("status") -> {
+                    val statusObj = item.optJSONObject("status")
+                    statusObj?.optLong("block_height", 0L) ?: 0L
+                }
+                else -> 0L
+            }
+
+            result.add(ApiUtxo(txid, vout, satoshis, scriptPubKey, height))
         }
         result
+    }
+
+    suspend fun getRawTransaction(txid: String): String = withContext(Dispatchers.IO) {
+        val safeTxid = encodePathSegment(txid)
+        val body = requestHttp("/api/wallet/tx/$safeTxid?raw=1")
+        val json = JSONObject(body)
+        val hex = json.optString("hex", json.optString("raw_tx", "")).trim()
+        if (hex.isBlank()) {
+            throw PepewApiException(500, "Hex is empty in transaction response")
+        }
+        hex
     }
 
     suspend fun broadcastTransaction(hex: String): String = withContext(Dispatchers.IO) {
@@ -473,7 +494,8 @@ data class ApiUtxo(
     val txid: String,
     val vout: Int,
     val satoshis: Long,
-    val scriptPubKey: String
+    val scriptPubKey: String,
+    val height: Long = 0L
 )
 
 data class ApiHealth(
